@@ -1,0 +1,609 @@
+#!/usr/local/bin/perl5 -wT
+$ini{'^load'}.=$;.__FILE__.<<'END'
+#############################################################################
+
+ utiltable.pll 0.5b 19950721-19980603 joel@school.net
+
+ DO NOT EDIT THIS!
+
+ This is a copy of the master version, and will be overwritten.
+ The master version is on jade.school.net in /www/cgi/util/joel/
+
+ Copyright (c) 1995-1998 Joel Parker Henderson joel@school.net 800-558-2197
+ This source code is private. Do not distribute without written permission.
+
+ utiltable.pll is a perl library, and does not do anything on its own.
+ It offers utilities for handling tables of data: searching, sorting,
+ printing, indexing, etc.
+
+
+ === How it works ===
+
+ This helpfile describes how to use utiltable.pll and how the code works. 
+ I will first decribe how the underlying code works for each function, 
+ then how to make use of that function in your own application.
+
+
+ === Basic Tables ===
+
+ These utilies will work best if you have a setup like this:
+
+   %item   A big hash {$row,$col} of all items in the table.
+   $rows   The number of rows in your table.
+   $row    The iterator for $rows, typically for $row (0..$rows-1)
+   $cols   The number of columns in your table.
+   $col    The iterator for $cols, typically for $col (0..$cols-1)
+
+ So example code looks like this:
+
+   for $row (0..$rows-1) {
+    print "Row # $row is: ";
+    for $col (0..$cols-1) {
+     print "$item[$row*$cols+$col] ";
+    }
+    print "\n"; 
+   }
+
+ You can create your table by hand if you want, or use the typical
+ utiltable functions which create your table from three files like:
+
+   maindata.txt    A big file with all your data.
+   splitrow.txt    The regex to split the rows of data.
+   splitcol.txt    The regex to use to split the columns of data.
+
+ The split files are typically one line each. Typical examples:
+
+   \n        split on newlines (this is usually the splitrow.txt)
+   \t        split on tabs (this is usually the splitcol.txt)
+   \n====\n  split on four equals signs on a line by themselves.
+   \n\.\n    split on a period on a line by itself
+
+ To use these files, typical code is:
+
+   my %item            =();
+   my $rows            =0;  ## this will be set by the load function
+   my $cols            =5;  ## e.g. Id, LastName, WorkPhone, Email, Hobbies
+   my $maindata        =FileRead('/foo/bar/maindata.txt');
+   my $splitrow        =FileRead('/foo/bar/splitrow.txt');
+   my $splitcol        =FileRead('/foo/bar/splitcol.txt');
+
+   utiltable_InitTableFromRam(\%item,\$rows,\$cols,\$maindata,$splitrow,$splitcol);
+
+ The utiltable_InitTable will split the rows, split the columns,
+ create the %item hash, and set $rows, and do some defensive
+ filtering for things like weird characters and cross-platform gotchas.
+
+ Typically, you will:
+
+   1. keep the database files in one directory.
+   2. name your files items.txt, splitrow.txt, splitcol.txt
+   3. not care about the splitrow and splitcol after the initialization.
+   4. not care about the maindata text after the initializion.
+
+ If so, then use this simpler code:
+
+   my %item; my $rows; my $cols=5;
+   utiltable_InitTableFromDir(\%item,\$rows,\$cols,'/foo/bar/');
+
+
+ === Table Columns ===
+
+ You will probably want to refer to particular columns within a row.
+ For example, your table has columns Id, LastName, WorkPhone, Hobbies.
+
+ To refer to any row and column, use the formula $item[$row*$cols+$col]
+ E.g. to look up the seventh row (row index #6) and the third column 
+ (column index #2, which is WorkPhone) you use $item[6*$cols+2]
+
+ This is ugly, and will cause errors if the column order changes.
+ So there's a better way.
+
+ The utiltable can use a hash that maps a column name to number;
+ this is so programmers and end users can reference columns by name 
+ without needing to know the column's position in the overall database. 
+ For example, here is the hash for the fields above:
+
+   $col{Id}        =$col{id}        =$col{0} =0;
+   $col{LastName}  =$col{lastname}  =$col{1} =1;
+   $col{WorkPhone} =$col{workphone} =$col{2} =2;
+   $col{Hobbies}   =$col{hobbies}   =$col{3} =3;
+
+ For notational convenience and a speed improvement,
+ you may also want to create globals like these:
+
+   $colId        =0;
+   $colLastName  =1;
+   $colWorkPhone =2;
+   $colHobbies   =3;
+
+ So now to get a particular row and a particular column,
+ you can use either of these:
+
+   $item[$row*$cols+$col{WorkPhone}]
+   $item[$row*$cols+$colWorkPhone]    ## if you use globals
+
+ You can build the %col hash and globals by hand,
+ or you can use our typical creation function:
+
+   utiltable_InitColumnsFromRam (\$cols,\%col,$setColGlobalsFlag,
+   "
+     Id
+     LastName
+     WorkPhone
+     Hobbies     
+   ");
+
+ You pass in a list of column names, one per line.
+ Blank lines and leading spaces are ignored.
+ If $setColGlobalsFlag is true, then the globals 
+ variables are created, with names like these:
+
+   $colId        =0;
+   $colLastName  =1;
+   $colWorkPhone =2;
+   $colHobbies   =3;
+
+ Typically you will store these columns names in a file named
+ columns.txt and your code will be as easy as this example:
+
+   my %item; my $rows; my $cols; my %col; my $dir='/foo/bar/';
+   utiltable_InitColumnsFromDir (\$col,\%cols,$setColGlobalsFlag,$dir);
+   utiltable_InitTableFromDir (\%item,\$rows,\$cols,$dir);
+
+ To save some typing, you can combine functions:
+
+   my %item; my $rows; my $cols; my %col; my $dir='/foo/bar/';
+   utiltable_InitAllFromDir (\%item,\$rows,\$cols,\%cols,$setColGlobalsFlag,$dir);
+
+
+ === Sorting ===
+
+ To sort your table, create an array of the column names (or numbers).
+ Sorting will be on the first column in your sorting array, then the 
+ next column, etc. For example, to sort by LastName then WorkPhone,
+ create an array like this:
+
+   my @sorting;
+   @sorting=('LastName','WorkPhone');
+
+ If you are letting the user specify the sorting columns, e.g. from a
+ web page cgi script, then you should be sure that all the sorting
+ columns are real columns. You can do this automatically by using:
+   
+   my @sorting; 
+   utiltable_InitSorting (\%col,\@sorting,'LastName,WorkPhone')=@_;
+
+ In the code above, you need to already have the %col hash created.
+ Column names (or numbers) that aren't in %col will be ignored.
+
+ To sort quickly, where sorting speed and RAM 
+ are issues, you will want to leave the %item
+ hash unsorted and instead sort a list of row
+ numbers that point into %item; this is akin to
+ sorting pointers to data, rather than the data.
+ It is much, much faster because you're not slinging
+ around huge chunks of RAM to sort the %item hash.
+
+ Here's how to do it:
+
+   my @rowptr; 
+   utiltable_Sort (\%item,$rows,$cols,\@sorting,\@rowptr,$true);
+
+ The final $true is to indicate that you want @rowptr initialized.
+ If you have multiple sorts, or use a "where" clause (explained later)
+ then use $false to prevent the @rowptr from getting re-initialized.
+ The default is $false, so you can just omit it. For example:
+
+   my @rowptr; 
+   ...
+   utiltable_Sort (\%item,$rows,$cols,\@sorting1,\@rowptr,$true);
+   ...
+   utiltable_Sort (\%item,$rows,$cols,\@sorting2,\@rowptr);
+   ...
+   utiltable_Sort (\%item,$rows,$cols,\@sorting3,\@rowptr);
+
+
+ === Where Filters ===
+
+ To restrict the data to certain rows, use the "where" filters.
+ For example, you can match the id, specify a date range, look
+ for text fields that contain certain words, and so on.
+
+ To use it, create an array @where that has ordered triples
+ of column name (or number), comparison operator, and data value.
+
+ For example, find all rows that are dated in 1998,
+ where the title field contains the word "foo", 
+ and the sender is anyone at the domain bar.com:
+
+   @where=(
+    'date'   ,'ge'       ,'1998',
+    'title'  ,'contains' ,'foo',
+    'sender' ,'from'     ,'bar.com'
+   )
+
+ The comparitors are:
+
+   ==  !=  <   <=  >   >= 
+   eq  ne  lt  le  gt  ge 
+   beginswith  endswith  contains from
+
+ If you use the typical cgi hash of keys and values,
+ then you can use an easy function to build the @where.
+ Your cgi input should look like this:
+
+   where.date.ge=1998&where.title.contains=foo&where.sender.from=bar.com
+
+ If you are using our typical utilities, the cgi keys and values
+ will go into a hash %inx, and then you can call this:
+
+   my @where=utiltable_ParseWhere(\%col,\%inx);
+
+ After you initialize the @where array, you will call this:
+
+   my @rowptr;
+   utiltable_Where (\%item,$rows,$cols,\@rowptr,\@where,\%col);
+
+ The utiltable_Where function builds @rowptr to be an array of
+ row numbers that match your query. This is the same @rowptr
+ that we saw earlier in the sorting functions, and you typically
+ pass it directly to the sort functions.
+
+ For example:
+
+   my (@rowptr, @where);
+   utiltable_ParseWhere(\@where,\%col,\%inx);
+   utiltable_Where (\%item,$rows,$cols,\@rowptr,\@where,\%col);
+
+
+ === Table Generate ===
+
+ (This section needs more fleshing out)
+
+ Finally, you are ready to output your %item. Typically you will
+ output a table, with column names as headers, and sorting links.
+
+  print "Content-type: text/html\n\n";
+  print TableGenerate(
+    \%item,$rows,$cols
+   ,\@rowptr,\@showColFlag,\%col
+   ,\@sorting,\@where,$kHref
+  );
+
+ The @showColFlag is an array of flags (0 or 1) that indicate
+ whether or not to show each particular column. 
+
+ The $kHref is the href link back to the script and project, e.g.
+ $kHref="http://www.foo.com/cgi/zipdata/myproject";
+
+
+
+#############################################################################
+END
+;
+
+$z=(defined $z and defined %ini and defined $true and defined $false); #-w
+
+$true=1; $false=0;
+$true=1; $false=0;
+
+sub utiltable_DoItAll {
+ my ($kAlignHtmlHashRef
+  ,$itemHashRef,$rowsIntRef,$colsIntRef
+  ,$colHashRef,$setColGlobalsFlag,$dir
+  ,$sortingArrayRef,$sortingString
+  ,$whereArrayRef,$whereKeysHashRef
+  ,$rowptrArrayRef
+  ,$returnTableGenerateFlag
+ )=@_;
+
+ utiltable_InitAlignHtml  ($kAlignHtmlHashRef);
+ utiltable_InitAllFromDir ($itemHashRef,$rowsIntRef,$colsIntRef,$colHashRef,$setColGlobalsFlag,$dir);
+ utiltable_InitSorting    ($colHashRef,$sortingArrayRef,$sortingString);
+ utiltable_ParseWhere     ($whereArrayRef,$colHashRef,$whereKeysHashRef);
+ utiltable_Where          ($itemHashRef,$$rowsIntRef,$$colsIntRef,$rowptrArrayRef,$whereArrayRef);
+ utiltable_Sort           ($itemHashRef,$$rowsIntRef,$$colsIntRef,$sortingArrayRef,$rowptrArrayRef);
+
+ return ($returnTableGenerateFlag)
+  ? TableGenerate(
+     $itemHashRef,$$rowsIntRef,$colsIntRef
+    ,$rowptrArrayRef,$showColFlagArrayRef,$colHashRef
+    ,$sortingArrayRef,$whereArrayRef,$kHref,$kAlignHtmlHashRef
+    )
+  : 0;
+}
+
+
+sub utiltable_InitAllFromDir {
+ my ($itemHashRef,$rowsScalarRef,$colsScalarRef,$colHashRef,$setColGlobalsFlag,$dir)=@_;
+ utiltable_InitColumnsFromDir($colsScalarRef,$colHashRef,$setColGlobalsFlag,$dir);
+ utiltable_InitTableFromDir($itemHashRef,$rowsScalarRef,$colsScalarRef,$dir);
+}
+
+sub utiltable_InitColumnsFromDir {
+ my ($colsIntRef,$colHashRef,$setColGlobalsFlag,$dir)=@_;
+ utiltable_InitColumnsFromRam (
+   $colsIntRef,$colHashRef,$setColGlobalsFlag
+  ,FileToText($dir.'columns.txt')
+ );
+}  
+
+sub utiltable_InitColumnsFromRam {
+ my ($colsIntRef,$colHashRef,$setColGlobalsFlag,$colText)=@_;
+ if (!defined $setColGlobalsFlag) { $setColGlobalsFlag=0; }
+ my (@line,$uppercase,$indexable);
+ @line=split(/\s*\n\s*/,$colText);
+ for (0..$#line) {
+  if ($line[$_]=~/^\s*(\w+)(\s+(\d))?/) {
+   $uppercase=$1; #-T
+   $indexable=(defined $3) ? $3 : 0; #-T
+   utiltable_InitColumn($colsIntRef,$colHashRef,$setColGlobalsFlag,$uppercase,$indexable);
+  }
+ }
+}
+
+sub utiltable_InitColumn {
+ my ($colsIntRef,$colHashRef,$setColGlobalsFlag,$uppercase,$indexable)=@_;
+ my ($col,$lowercase);
+ $col=$$colsIntRef;
+ $lowercase=$uppercase;
+ $lowercase=~tr/A-Z/a-z/;
+ $$colHashRef{$lowercase}=$col{$uppercase}=$col{$col}=$col; 
+ $$colHashRef{$col,'lowercase'}=$lowercase;
+ $$colHashRef{$col,'uppercase'}=$uppercase;
+ $$colHashRef{$col,'indexable'}=$indexable;
+ if ($setColGlobalsFlag) { 
+  eval "\$col$col=\$col$uppercase=$col;";  
+ }
+ $$colsIntRef++;
+}
+
+sub utiltable_InitTableFromDir {
+ my ($itemHashRef,$rowsScalarRef,$colsScalarRef,$dir)=@_;
+ my $maindata=FileToText($dir.'maindata.txt');
+ $maindata=~s#^\s*<HtxInit.*?<Data/>[ \t]*\n##is;
+ utiltable_InitTableFromRam (
+  $itemHashRef,$rowsScalarRef,$colsScalarRef
+  ,\$maindata
+  ,FileToText($dir.'splitrow.txt')
+  ,FileToText($dir.'splitcol.txt')
+ );
+}
+
+sub utiltable_InitTableFromRam {
+
+ my ($itemHashRef,$rowsScalarRef,$colsScalarRef,$maindataTextRef,$splitrow,$splitcol)=@_;
+ my ($rows,$cols,$row,$k,@row,@col,$i);
+
+ $cols=$$colsScalarRef; # convenience
+ $$maindataTextRef=~s/(\r\n|\n\r)/\n/g;
+ %$itemHashRef=();
+
+ $splitrow=~s/^\s+//; $splitrow=~s/\s+$//;
+ $splitcol=~s/^\s+//; $splitcol=~s/\s+$//;
+
+ @row=split(/$splitrow/,$$maindataTextRef);
+ $rows=$#row+1;
+ for $row (0..$rows-1) {
+  @col=split(/$splitcol/,$row[$row]);
+  for $col (0..$cols-1) {
+   $$itemHashRef{$row,$col}=$col[$col];
+  }
+ }
+ $$rowsScalarRef=$rows;
+}
+
+
+sub utiltable_InitSorting {
+ my ($colHashRef,$sortingArrayRef,$sortingString)=@_;
+ @$sortingArrayRef=();
+ foreach (split(/\W+/,$sortingString)) {
+  if (defined $$colHashRef{$_}) {
+   push (@$sortingArrayRef,$$colHashRef{$_}); 
+  }
+ }
+}
+
+
+###
+# 
+#  utiltable_Sort
+#
+###
+
+sub utiltable_Sort {
+
+ my ($itemHashRef,$rows,$cols,$sortingArrayRef,$rowptrArrayRef,$rowptrInitFlag)=@_;
+ my ($rowptr1,$rowptr2,$cmp,$sorting,$sortingMax,$temp,@rowptr);
+
+ if (!defined $rowptrArrayRef) {
+  $rowptrArrayRef=\@rowptr;
+  $rowptrInitFlag=$true;
+ }
+
+ if (defined $rowptrInitFlag and $rowptrInitFlag) {
+  $#$rowptr=$rows-1; # pregrow
+  for $rowptr1 (0..$#$rowptr) {
+   $$rowptrArrayRef[$rowptr1]=$rowptr1;
+  }
+ }
+
+ $sortingMax=$#$sortingArrayRef;
+
+ for  $rowptr1 (0         ..$#$rowptrArrayRef) {
+  for $rowptr2 ($rowptr1+1..$#$rowptrArrayRef) {
+
+   $sorting=0;
+   $cmp=0;
+   
+   while ($cmp==0 and $sorting<=$sortingMax) {
+    $cmp=$$itemHashRef{$$rowptrArrayRef[$rowptr1],$$sortingArrayRef[$sorting]}
+     cmp $$itemHashRef{$$rowptrArrayRef[$rowptr2],$$sortingArrayRef[$sorting]};
+    $sorting++;
+   }
+
+   if ($cmp>0) {
+    $temp=$$rowptrArrayRef[$rowptr1];
+    $$rowptrArrayRef[$rowptr1]=$$rowptrArrayRef[$rowptr2];
+    $$rowptrArrayRef[$rowptr2]=$temp;
+   }
+  }
+ }
+}
+
+
+sub utiltable_ParseWhere {
+ my ($whereArrayRef,$colHashRef,$keyHashRef)=@_;
+ my ($whereList);
+ $whereList='';
+ grep ((/^where\.(\w+)\.(.+?)\.?$/   ## col, cmp, val
+   and $$keyHashRef{$_}
+   and $whereList.="$_=$$keyHashRef{$_}"
+   and push(@$whereArrayRef,$col{$1},$2,$$keyHashRef{$_}))
+ , keys %$keyHashRef);
+}
+
+sub utiltable_InitAlignHtml {
+
+ return (
+  '<^',' align=left valign=top'
+ ,'<-',' align=left valign=middle'
+ ,'<v',' align=left valign=bottom'
+ ,'|^',' align=middle valign=top'
+ ,'|-',' align=middle valign=middle'
+ ,'|v',' align=middle valign=bottom'
+ ,'>^',' align=right valign=top'
+ ,'>-',' align=right valign=middle'
+ ,'>v',' align=right valign=bottom'
+ );
+
+}
+
+
+###
+#
+# Parse "where" clause of column #, comparitor, and value.
+# Multiple entries are delimited by ampersands.
+#
+###
+
+sub utiltable_Where {
+ my ($itemHashRef,$rows,$cols,$rowptrArrayRef,$whereArrayRef,$colHashRef)=@_;
+ my ($col,$cmp,$val,$row,$col,$where,@where);
+
+ for ($row=0; $row < $rows; $row++) {
+  $rowptrFlag=1; # innocent 
+  for ($where=0; $where < $#$whereArrayRef; $where+=3) {
+   $rowptrFlag*=Compare($$itemHashRef{$row,$$whereArrayRef[$where+0]},$$whereArrayRef[$where+1],$$whereArrayRef[$where+2]);
+  }
+  if ($rowptrFlag) {
+   push(@$rowptrArrayRef,$row);
+  }
+ }
+}
+
+
+sub utiltable_TableGenerate {
+ my ($itemHashRef,$rowsIntRef,$colsIntRef
+     ,$rowptrArrayRef,$showColFlagArrayRef,$colHashRef
+     ,$sortingArrayRef,$whereArrayRef,$href,$kAlignHtmlHashRef)=@_;
+ my ($p,$rowptr,$header)='';
+ if (%$itemHashRef) {
+  foreach (@$rowptrArrayRef) {
+   $rowptr.="$_,";  ## WARNING! This assumes that the underlying database doesn't change between hits.
+  }
+  $p.= "<form>"
+  ."<input type=hidden name=rowptr value=$rowptr>\n"
+  ."<table border=1 cellpadding=3>"
+#  .($header=utiltable_HtmlTableHeader($cols,$showColFlagArrayRef,$colHashRef,$href,$sortingArrayRef,$whereArrayRef))
+  .utiltable_HtmlTableBody($itemHashRef,$rowsIntRef,$colsIntRef,$rowptrArrayRef,$showColFlagArrayRef,'<^ <^ <^ <^',$kAlignHtmlHashRef)
+#  .$header
+  ."</table></form><p>\n\n"; 
+ }
+ return $p;
+}
+
+ 
+sub utiltable_HtmlTableHeader {
+ my ($cols,$showColFlagArrayRef,$colHashRef,$href,$sortingArrayRef,$whereArrayRef)=@_;
+ my ($i,$t,$where,$sorting,$btn,$bgcolor); 
+ $t='';
+
+ $where='';
+ $sorting='';
+
+ for ($i=0; $i<=$#$whereArrayRef;) {
+  $where.="where.".$$colHashRef{$$whereArrayRef[$i++],'lowercase'}.".$$whereArrayRef[$i++]=$$whereArrayRef[$i++]&";
+ }
+ for ($i=1; $i<=$#$sortingArrayRef; $i++) { 
+  $sorting.=$$colHashRef{$$sortingArrayRef[$i],'lowercase'}.",";
+ }
+ chop $sorting;
+ $t.="<input type=hidden name=sorting value=$sorting>";
+
+ for $col (0..$cols-1) {
+  if ($$showColFlagArrayRef[$col]) {
+
+   if ($col==$$sortingArrayRef[0]) {
+    $bgcolor=' bgcolor=ffffbb';
+    $btn='';
+   }
+   else {
+    $bgcolor='';
+    $btn="<input border=0 src=/art/ic/sort.gif type=image value=sort name=submit.sort.".$$colHashRef{$col,'lowercase'}.">";
+   }      
+
+   $t.="<td $bgcolor><b>$$colHashRef{$col,'uppercase'}</b><br>$btn</td>";
+
+  }
+ }
+ return "\n<tr valign=top>$t</tr>\n";
+}
+ 
+
+sub utiltable_HtmlTableBody {
+ my ($itemHashRef,$rowsIntRef,$colsIntRef,$rowptrArrayRef,$showColFlagArrayRef,$colAlignList,$kAlignHtmlHashRef)=@_;
+ my (@colAlign,$p,$i,$row,$col);
+ $p='';
+ @colAlign=split(/\s+/,$colAlignList);
+
+ foreach $row (@$rowptrArrayRef) {
+  $p.="<tr>";
+  for $col (0..$$colsIntRef-1) {
+   if ($$showColFlagArrayRef[$col]) {
+    $p.="<td valign=top "
+    .(($colAlign[$col])?$$kAlignHtmlHashRef{$colAlign[$col]}:'')
+    .">$$itemHashRef{$row,$col}</td>";
+   }
+  }
+  $p.="</tr>\n";
+ }
+ return $p;
+}
+
+###
+#
+# Log
+#
+###
+
+sub utiltable_Log {
+ local ($file,$customMsg)=@_;
+ local ($logline,$when,$ip,$host,$browser);
+ local ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=0;
+       ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=localtime(time);
+ $when = sprintf("19%2.2d/%2.2d/%2.2d %2.2d:%2.2d:%2.2d",$year,$mon+1,$mday,$hour,$min,$sec);
+ $ip      = $ine{REMOTE_ADDR};
+ $host    = $ine{REMOTE_HOST};
+ $browser='';  # we don't care about the browser
+ #$browser = $ine{HTTP_USER_AGENT};
+ $logline=$when
+ .sprintf(" %-15.15s %s %s",$ip,(($host && ($host ne $ip)) ? $host : '-'), $browser)
+ ."\tuser:".($ine{REMOTE_USER} or "-")
+ ."\tpath:$ine{PATH_INFO}"
+ .(($customMsg)?"\tnote:$customMsg":'')
+ ."\n"; 
+ FileRWA($file,$logline,undef,$true);
+}
+
+1

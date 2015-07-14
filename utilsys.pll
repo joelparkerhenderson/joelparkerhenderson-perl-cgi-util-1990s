@@ -1,0 +1,603 @@
+#!/usr/local/bin/perl -wT
+$ini{'^load'}.=$;.__FILE__.' '.<<'END'
+#############################################################################
+
+ utilsys.pll 0.9b 19940207-19971007 joel@school.net
+
+ DO NOT EDIT THIS!
+
+ This is a copy of the master version, and will be overwritten.
+ The master version is on jade.school.net in /www/cgi/util/joel/
+
+ Copyright (c) 1994-1997 Joel Parker Henderson joel@school.net 800-558-2197
+ This source code is private. Do not distribute without written permission.
+
+ utilsys.pll is a perl library, and does not do anything on its own.
+ It offers utilities for handling system calls, and replacements for some
+ system utilities (such as a special nslookup that caches queries).
+
+#############################################################################
+END
+;
+
+sub SystemFlagger {
+  local ($s,$doItFlag,$description)=@_;
+  if (!$description) { $description="SystemFlagger"; }
+  if ($doItFlag) {
+    &trace("[REALLY!] $description: $s");
+    system $s;
+  } else {
+    &trace("[not really] $description $s");
+  }
+}
+
+
+#####################################################################
+##
+##                  CACHING NET INFO
+##
+#####################################################################
+
+
+##
+#
+# NetIP2IPRoot
+#
+# This returns the root class of the network.
+#
+# I'm not sure if I have this right, but:
+#  
+#    1-127   == class A ==> xxx
+#    128-191 == class B ==> xxx.xxx
+#    191-    == class C ==> xxx.xxx.xxx
+#
+##
+
+### I don't deal with class A or D networks yet here.
+
+sub NetIP2IPRoot {
+  local ($ip)=@_;
+  local ($iproot);
+  #local (%me) = &traceinit('NetIP2IPRoot','ip', $kTraceSubs, $kTraceReports, $kTraceArgs);
+
+  local ($ip1,$ip2,$ip3,$ip4)="";
+  ($ip1,$ip2,$ip3,$ip4) = split(/\./,$ip);
+  if ($ip1 < 192)  { $iproot = "$ip1.$ip2";}
+  if ($ip1 >= 192) { $iproot = "$ip1.$ip2.$ip3";}
+  #&tracedone();
+  return $iproot;
+}
+    
+
+#############
+#
+#  LOOKUP MACHINE
+#
+#############
+
+$kPathWebWatch = "/home/joel/webwatch";
+
+$kCacheIP2Machine = "$kPathWebWatch/cache.ip2machine";
+$kCacheDomainLine = "$kPathWebWatch/cache.domainline";
+
+###
+#  
+#  LoadCacheMachine loads the machine-name cache file to an associative array.
+#  To get the machine name of any IP address, use the IP as the  key:
+#
+#    %gCacheMachine{'199.183.6.8'} ==> "welcome.vo.com"
+#
+###
+ 
+
+sub LoadCacheIP2Machine{
+  %gCacheIP2Machine=&LoadAssociationFile($kCacheIP2Machine,$false);
+  $gCacheIP2Machine{$kNetUnknownIP}=$kNetUnknownMachine;
+}
+
+sub LoadCacheDomainLine{
+  %gCacheDomainLine=&LoadAssociationFile($kCacheDomainLine,$true);
+  $gCacheDomainLine{$kNetUnknownDomain}=$kNetUnknownDomainline;
+}
+
+ 
+
+###
+# 
+#  NetIP2Machine
+#
+#  This is the main function you should call when you want
+#  to know the machine name of an IP address.
+#
+#  E.g.   $ip ="199.183.6.8"
+#         $machineName = &NetIP2Machine($ip);
+#         print $machineName;   ==> "welcome.vo.com"
+#
+#  This will return the corresponding machine name.
+#  
+#  If the IP address isn't in the cache, then this tries the nslookup
+#  system call. If found by the system call, then the result is added
+#  to the cache; thus the cache "builds" itself as you use it.
+#
+###
+
+
+sub NetIP2Machine {
+
+  local ($ip,$useGrepFlag,$useSysFlag) = @_;
+
+  local (%me) = &traceinit('NetIP2Machine','ip useGrepFlag useSysFlag', $kTraceSubs, $kTraceReports, $kTraceArgs);
+
+  ## fast results if we already know this
+  if (defined $gCacheIP2Machine{$ip}) {
+    &trace("NetIP2Machine = $gCacheIP2Machine{$ip}");
+    &tracedone();
+    return $gCacheIP2Machine{$ip};
+  }
+
+  if ($ip=~/^ *$/) { &tracedone(); return $kNetUnknownMachine; }
+
+  ## grep for it?  
+  if ($useGrepFlag) {
+    $machine=&FileGrep1($kCacheIP2Machine,"^$ip "); 
+    if ($machine) {
+      $machine=~s/^[^\s][\t ]+//;  # chop leading ip
+      if ($machine) { 
+        &tracedone();
+        return ($machine);
+      }
+    }
+  }
+
+  ### otherwise, we need to look it up.
+
+  local ($result) = ($useSysFlag) 
+                     ? &NSLookupIP2Machine($ip)
+                     : $kNetUnknownMachine;
+
+  #&tracevar('result');
+  &tracedone();
+  return $result;
+}
+
+$kNetUnknownIP		= "0.0.0.0";
+#$kNetUnknownIPRoot	= "0.0";
+$kNetUnknownMachine	= "zzz.zzz.com";
+$kNetUnknownDomain	= "zzz.com";
+$kNetUnknownID		= "ZZZ";
+$kUnknownCompany	= "ZZZ Company Unknown";
+$kUnknownAddress	= "address unknown";
+$kUnknownState		= "ZZ";
+$kUnknownZip5		= "00000";
+$kUnknownPhoneArea	= "000";
+$kUnknownPhonePrefix	= "000";
+$kNetUnknownNameserver  = "rs1.internic.net";
+$kNetUnknownDomainline  
+ =sprintf("%-16s %s+%s %s:%s %s\t%s\t%s"
+ ,$kNetUnknownDomain,$kUnknownPhoneArea,$kUnknownPhonePrefix,$kUnknownState,$kUnknownZip5,$kUnknownCompany,$kUnknownAddress,$kNetUnknownNameserver);
+
+###
+#
+#  NSLookupIP2Machine takes an IP address (probably a number like 199.183.6.8)
+#  and looks up the the corresponding machine name (e.g. welcome.vo.com)
+#  via a system call to "nslookup". If not found, returns $kNetUnknownMachine.
+#
+#  NSLookupMachine2IP does the reverse. If not found, returns $kNetUnknownIP.
+#
+#  If you have to do a lot of them, you might benefit from this snippet:
+#   foreach $ip (@needToLookup) { push (@results, &NSLookupIP2Machine($ip)); }
+#
+###
+
+sub NSLookupIP2Machine {
+
+  local ($inIP) = @_;
+  local ($ns, $nsIP, $nsMachine, $ip, $machine);
+  local (%me) = &traceinit('NSLookupIP2Machine','inMachine' 
+                         , $kTraceSubs, $kTraceReports, $kTraceArgs); 
+
+  open(NS,"nslookup -timeout=1 $inIP |"); $ns = join("",<NS>); close NS;
+  ($nsMachine,$nsIP)=$ns=~m#\nName:[ \t]+(.*)\nAddress:[ \t]+(.*)#;
+
+  $ip=$inIP;
+  $machine=($nsMachine) ? $nsMachine : $kNetUnknownMachine;
+  $machine=~tr/A-Z/a-z/;
+  $gCacheIP2Machine{$ip}=$machine; 
+  if ($ip && $machine) {
+    &AppendFile($kCacheIP2Machine, (sprintf("%-16s %s\n",$ip,$machine)));
+  }
+  &trace("NSLookupIP2Machine found $gCacheIP2Machine{$ip}");
+  &tracedone(); return $gCacheIP2Machine{$ip};
+
+}
+
+sub NSLookupMachine2IP {
+
+  local ($inMachine) = @_;
+  local ($ns, $nsIP, $nsMachine, $ip, $machine);
+  local (%me) = &traceinit('NSLookupMachine2IP','inMachine' 
+                         , $kTraceSubs, $kTraceReports, $kTraceArgs); 
+
+  open(NS,"nslookup -timeout=1 $inMachine |"); $ns = join("",<NS>); close NS;
+  ($nsMachine,$nsIP)=$ns=~m#\nName:[ \t]+(.*)\nAddress:[ \t]+(.*)#;
+  #print "$ns\n";
+  $ip      =($nsIP) ? $nsIP : $kNetUnknownIP;
+  $machine =$inMachine;
+
+  if ($ip && $machine) {
+    $gCacheIP2Machine{$ip}=$machine; 
+    &AppendFile($kCacheIP2Machine, (sprintf("%-16s %s\n",$ip,$machine)));
+  }
+  &tracedone(); return ($ip);
+}
+
+
+#############
+#
+#  DOMAIN-->COMPANY
+#
+#############
+
+###
+#
+#  DomainTrim
+#
+#  machine name (input)		domain (output)		comments (output)
+#  -----------------		---------------		-----------------
+#  my.cool.place.com		place.com		(none)
+#  any.oxford.ac.uk		oxford.ac.uk		"world"
+#  199.183.6.8			199.183.6.8		"ip"
+#  any.utoronto.ca		utoronto.ca		(none) (Canada is special-- they have real domains)
+#
+###
+
+sub DomainTrim {
+
+  local ($machine) = @_;
+  local (@parts,$max,$domain,$comments);
+  $machine=~tr/A-Z/a-z/;
+  @parts = split(/\./,$machine);
+  $max = $#parts;
+
+  ## Is this as an IP? 
+
+  if ($machine=~/\d$/) {  
+    $comments = "ip";
+    $domain = $machine;
+
+  } else {
+    local ($p) = $parts[$max];
+    &tracevar('machine,p,max');
+    if (($parts[$max-1] && $parts[$max]) &&
+       (($p eq "com")
+      ||($p eq "edu")
+      ||($p eq "net")
+      ||($p eq "org")
+      ||($p eq "gov")
+      ||($p eq "mil")
+      ||($p eq "int")
+      ||($p eq "ca")   # canada has major domains
+    )) {
+      $domain = "$parts[$max-1].$parts[$max]"; 
+    } else {
+      if (length($parts[$max])==2) {   ## us, uk, ch, be, country codes
+        if ($parts[$max-2] && $parts[$max-1] && $parts[$max]) {
+          $domain = "$parts[$max-2].$parts[$max-1].$parts[$max]";
+          $comments = "world";
+        }
+      }
+    }
+  }
+  if (!defined $domain || $domain eq "") { $domain=$kNetUnknownDomain; }
+  return ($domain,$comments);
+}
+
+
+###
+#
+#  BuildCacheDomainline
+#
+#  This forces the caching of all domain names that correspond to any
+#  already-cached ip addresses in ip2machine. This is useful to call as
+#  soon as you've loaded your ip2machine cache, to make sure all
+#  domain information is quickly available. Warning: this may take
+#  a *long* time.
+#
+###
+
+
+sub BuildCacheDomainLine {
+
+  local ($ip,$domainline);
+  local (%me) = &traceinit('BuildCacheDomainLine',''
+                         , $kTraceSubs, $kTraceReports, $kNoTraceArgs);
+
+  foreach $ip (sort keys %gCacheIP2Machine) {
+    #&tracevar('ip');
+    if ($domainline = &NetIP2DomainLine($ip,$false,$true)) {
+      #nop  #&trace("cached $domainline");
+    } else {
+      &trace("failed domainline for ip = $ip");
+    }
+  }
+  &tracedone();
+}
+
+
+sub NetIP2DomainLine {
+
+  local ($ip,$useGrepFlag,$useSysFlag)=@_;
+  local ($machine,$comments,$domainline,$whois,$iproot);
+  local ($domain,$company,$phoneArea,$phonePrefix,$state,$zip,$address,$nameserver,%z);
+  local (%me) = &traceinit('NetIP2DomainLine','ip useGrepFlag useSysFlag'
+                         , $kTraceSubs, $kTraceReports, $kNoTraceArgs);
+
+  $machine=&NetIP2Machine($ip);
+  &tracevar('machine');
+  if ($machine ne $kNetUnknownMachine) {
+    ($domain,$comments) = &DomainTrim($machine);  
+  } else {
+
+    ##
+    # we didn't find the machine name, so to find the domain
+    # we do a whois on the ip address.
+    ##
+
+    $iproot = &NetIP2IPRoot($ip);
+    &trace("Machine name not found for $ip. Whois $iproot to find entry.");
+    $whois = &WhoisHelp("net $iproot");
+    if ($whois) {
+      ($domain,$company,$phoneArea,$phonePrefix,$state,$zip,$address,$nameserver,%z)
+	= &ParseWhoisEntry($whois);
+      &tracevar('domain,company,phoneArea,phonePrefix,state,zip,address,nameserver');
+
+      ##
+      # if we didn't get back a domain name, that sucks.
+      # for ip < 192 we probably got back a useless net name.
+      # However, often the nameservers are in the same domain
+      # name as the ip-- so we'll check the ip of the nameserver
+      # with the ip we're trying to find. If the root ips are the same,
+      # we'll conclude (possibly wrongly) that the domain name we're
+      # trying to find is the same as that of the primary nameserver.
+      ##
+
+      if (($domain eq $kNetUnknownDomain)
+        &&($nameserver ne $kNetUnknownNameserver)) {
+        local ($nsDomain,$nsIP) = split(/=/, $nameserver);
+        #&tracevar('nsDomain nsIP');
+        #&trace("Does ".&NetIP2IPRoot($ip)." = ".&NetIP2IPRoot($nsIP)."  ?");
+        if (&NetIP2IPRoot($ip) eq &NetIP2IPRoot($nsIP)) {
+          ($domain,$comments) = &DomainTrim($nsDomain);
+	  &trace("Found the domain! domain = $domain");
+        } 
+      }
+    }#if whois
+  }#else
+
+  &trace("NetIP2DomainLine: $ip = $machine = $domain");
+
+  if (!$domain) { &trace("Warning: NetIP2DomainLine received no domain for ip=$ip"); &tracedone(); return $kNetUnknownDomainline; }
+  if ($domain eq $kNetUnknownDomain) { &trace("Warning: NetIP2DomainLine cannot find domain for ip=$ip"); &tracedone(); return $kNetUnknownDomainline; }
+
+  if (!defined $gCacheDomainLine{$domain}) {
+
+    if ($useGrepFlag){$domainline=&FileGrep1($kCacheDomainLine,"^$domain ");}
+
+    if (!$domainline && $useSysFlag) {
+      $whois = &WhoisHelp("dom $domain");
+      ($z,$company,$phoneArea,$phonePrefix,$state,$zip,$address,$nameserver,%z)=&ParseWhoisEntry($whois);
+      if ($domainline=sprintf("%-16s %s+%s %s:%s %s\t%s\t%s"
+	 ,$domain,$phoneArea,$phonePrefix,$state,$zip
+         ,$company,$address,$nameserver)) {
+        &trace("Appending $domainline");
+        &AppendFile($kCacheDomainLine, "$domainline\n");
+      }
+    }
+
+    ## Add it to our memory cache. We may have gotten garbage back,
+    ## or maybe "" nothing, but we should still add it to the memory
+    ## cache so we don't keep trying to get it. But do *not* add it
+    ## to the disk cache.
+  
+    $gCacheDomainLine{$domain}=$domainline; 
+  }
+  &trace("Domain line found: $gCacheDomainLine{$domain}");
+  &tracedone();
+  return $gCacheDomainLine{$domain};
+}
+
+##
+#
+#  WhoisHelp
+#
+#  This simply does a Whois system command on the input.
+#  Usually returns 0 if there was some kind of an error.
+#
+##
+
+sub WhoisHelp {
+  local ($whois) = @_;
+  #&trace("whois $whois");
+  local (@host,$host,$e,$found);
+  @host = ("-h rs2.internic.net", "-h rs1.internic.net", "-h rs0.internic.net","","");  # default
+  if ($whois=~/\.mil$/) { @host="-h nic.ddn.mil"; }
+ 
+  $host=0; $found=0; $e=0;
+  while (($found <= 0) && $host < $#host) {
+    open(WHOIS,"whois $host[$host] \"$whois\" | ");
+    $e = join("",<WHOIS>);
+    close WHOIS;
+    $found=1; ## by default, we've found something.
+    if ($e =~/whois: connect: Connection refused/) { $found=-1; }
+    if (length($e) < 256) { &trace("WhoisHelp error: $e (by $host)"); $found = -2; }
+    $host++; print $host;
+  }
+  if ($found == -1) { die "DIE: Whois cannot connect anywhere. Try again later.\n"; }
+  if ($found <= 0) { $e=""; }
+  return $e;
+}
+
+##
+#
+#  ParseWhoisEntry
+#
+#  This parses an entry from the whois database.
+#  It returns useful fields.
+#
+#  The final %whois associative array has keys like this:
+#
+#  $whois{"$domain_$item"} where $domain is something like "school.net"
+#  and $item is something like "company. So to find the company name
+#  of the school.net domain, you'd do this:
+#
+#    $companyName = $whois{"school.net_companyName"};
+#
+#  To save time, the associative array is not generated,
+#  nor is more indepth information calculated, unless you
+#  have the $indepthFlag set true. The %whois array is global.
+#
+##
+
+sub ParseWhoisEntry {
+
+  local (%me) = &traceinit('ParseWhoisEntry', ''
+                          , $kTraceSubs, $kTraceReports, $kNoTraceArgs);
+
+  local ($e,$indepthFlag)=@_;
+  if (!$e) { 
+    &trace("Warning: ParseWhoisEntry received no entry to parse.");
+    &tracedone();
+    return ($kNetUnknownDomain,$kUnknownCompany,$kUnknownPhoneArea,$kUnknownPhonePrefix,$kUnknownState,$kUnknownZip5,$kUnknownAddress,"",());
+  }
+
+  #&tracevar('e');
+  local(%whois,$netname, $netnumber, $id);
+  local($domain, $company, 
+	$phoneArea, $phonePrefix, $state, $zip5, $address, $nameserver);
+
+  $e=~s/^.*rs.*\.internic\.net.*\n//;   #kill [rs.internic.net]
+  $e=~s/^\s*//g;                        #kill leading whitespace
+
+
+  ### Company name and network id
+
+  if (($company,$id)=$e=~ /^([^\(]*)\(([^\)]*)\)\n/) {
+                     $e=~s/^([^\(]*)\(([^\)]*)\)\n//;
+  } else {
+    $company = $kUnknownCompany;
+    $id = $kNetUnknownID;
+  }
+
+
+  ### Address, city, state
+
+  if (($address)=$e=~ /((  +\S.*\n)*)/) {
+    $e=~s/$&/\n/;
+    $address =~ s#^ +##g;
+    $address =~ s#\s+$##g;
+    $address =~ s# *\n *# / #g;
+    if ($address ne "") {
+      ($state,$zip5)=$address=~/, +([A-Z][A-Z]) +(\d\d\d\d\d)-?\d*$/;
+    }
+  }
+  if (!defined $address || !$address) { $address=$kUnknownAddress; }
+  if (!$state) { $state=$kUnknownState;}
+  if (!$zip5)  { $zip5  =$kUnknownZip5;  } 
+
+
+  ### Telephone area code and prefix
+
+  ($phoneArea,$phonePrefix)=$e=~/\n +\((\d\d\d)\) ?(\d\d\d)-\d\d\d\d[^d]/;
+  if (!($phoneArea && $phonePrefix)) {
+    ($phoneArea,$phonePrefix)=$e=~/\n +(\d\d\d)-(\d\d\d)-\d\d\d\d[^d]/;
+    if (!($phoneArea && $phonePrefix)) {
+      $phoneArea = $kUnknownPhoneArea;
+      $phonePrefix  = $kUnknownPhonePrefix;
+    }
+  }
+
+  if ((($nameserver)=$e=~ /\n[ \t]+Domain servers in listed order:[ \t]*\n[ \t]*\n[ \t]+([^ \t]+[ \t]+[\d\.]+).*\n/)
+    ||(($nameserver)=$e=~ /\n[ \t]+Domain System inverse mapping provided by:[ \t]*\n[ \t]*\n[ \t]+([^ \t]+[ \t]+[\d\.]+).*\n/)) {
+    $nameserver =~ s#[ \t]+#=#g;
+    $nameserver =~ tr/A-Z/a-z/;
+  } else { 
+    $nameserver=$kNetUnknownNameserver;
+  }
+
+  if (($netname,$netnumber)=$e=~ /\n   Netname: (.*)\n   Netnumber: (.*)\n/) {
+                            $e=~s/\n   Netname: (.*)\n   Netnumber: (.*)\n/\n/;
+  } else {
+    $netname=$netnumber="";
+  }
+
+  if (($domain)=$e=~ /\n[ \t]+Domain Name:[ \t]*(.+)\n/) {
+                $e=~s/$&/\n/;
+    $domain=~tr/A-Z/a-z/;
+  } else {
+    #&tracevar('e');
+    $domain = $kNetUnknownDomain;
+  }
+
+  &tracevar('company, id, domain, netname, netnumber');
+
+  if ($indepthFlag) {
+
+    local ($adminName,$adminID,$adminEmail,$adminPhone)=$e=~/$kAdminSearch/;
+    local ( $techName, $techID, $techEmail, $techPhone)=$e=~/$kTechSearch/;
+    local ( $zoneName, $zoneID, $zoneEmail, $zonePhone)=$e=~/$kZoneSearch/;
+    local ($coordName,$coordID,$coordEmail,$coordPhone)=$e=~/$kCoordSearch/;
+
+    if ($e=~ /Administrative Contact, Technical Contact/) { $adminEQtech=1; }
+    if ($e=~ /Technical Contact, Zone Contact/)           { $techEQzone =1; }
+    if ($e=~ /Administrative Contact, .*Zone Contact/)    { $adminEQzone=1; }
+    if ($e=~ /Administrative Contact, Technical Contact, Zone Contact/)
+                                                  { $adminEQtechEQzone=1; }
+
+    &tracevar('adminName,adminID,adminEmail,adminPhone');
+    &tracevar('techName, techID, techEmail, techPhone');
+    &tracevar('zoneName, zoneID, zoneEmail, zonePhone');
+    &tracevar('coordName,coordID,coordEmail,coordPhone');
+
+    $whois{$domain.'_company'}      =$company;
+    $whois{$domain.'_id'}           =$id;
+    $whois{$domain.'_address'}      =$address;
+    $whois{$domain.'_netname'}      =$netname;
+    $whois{$domain.'_netnumber'}    =$netnumber;
+    $whois{$domain.'_domain'}       =$domain;
+
+    $whois{$domain.'_adminName'}    =$adminName;  
+    $whois{$domain.'_adminID'}      =$adminID;
+    $whois{$domain.'_adminEmail'}   =$adminEmail;
+    $whois{$domain.'_adminPhone'}   =$adminPhone;
+
+    $whois{$domain.'_techName'}     =$techName;
+    $whois{$domain.'_techID'}       =$techID;
+    $whois{$domain.'_techEmail'}    =$techEmail;
+    $whois{$domain.'_techPhone'}    =$techPhone;
+
+    $whois{$domain.'_coordName'}    =$coordName;
+    $whois{$domain.'_coordID'}      =$coordID;
+    $whois{$domain.'_coordEmail'}   =$coordEmail;
+    $whois{$domain.'_coordPhone'}   =$coordPhone;
+
+    $whois{$domain.'_zoneName'}    =$zoneName;
+    $whois{$domain.'_zoneID'}      =$zoneID;
+    $whois{$domain.'_zoneEmail'}   =$zoneEmail;
+    $whois{$domain.'_zonePhone'}   =$zonePhone;
+
+    $whois{$domain.'_adminEQtech'}  =$adminEQtech;
+    $whois{$domain.'_techEQzone'}   =$techEQzone;
+    $whois{$domain.'_adminEQzone'}  =$adminEQzone;
+    $whois{$domain.'_adminEQtechEQzone'} =$adminEQtechEQzone;
+
+  } else { %whois=(); }
+
+  &tracedone();
+  return ($domain,$company,$phoneArea,$phonePrefix,$state,
+		$zip5,$address,$nameserver,%whois);
+}
+
+
+
+1 # must end with 1
+

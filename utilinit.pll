@@ -1,0 +1,95 @@
+#!/usr/local/bin/perl -wT
+$ini{'^load'}.=$;.__FILE__.' '.<<'END'
+#############################################################################
+
+ utilinit.pll 2.5b 19940321-19971007 joel@school.net
+
+ DO NOT EDIT THIS!
+
+ This is a copy of the master version, and will be overwritten.
+ The master version is on jade.school.net in /www/cgi/util/joel/
+
+ Copyright (c) 1994-1997 Joel Parker Henderson joel@school.net 800-558-2197
+ This source code is private. Do not distribute without written permission.
+
+ utilinit.pll is a perl library, and does not do anything on its own.
+ It offers utilities for handling command-line switches, and is included
+
+ Switches:
+
+  -cgi=        Invoke script with -cgi=pathinfo?querystring
+
+#############################################################################
+END
+;
+
+&UtilInit;
+sub UtilInit {
+
+ local ($path,$sep,$root,$file,$util,$lib,$viaCgiFlag);
+
+ ##  Store the environment, then flush it for security.
+
+ for (@ine=qw'SERVER_SOFTWARE SERVER_NAME SERVER_PROTOCOL SERVER_PORT
+ REMOTE_HOST REMOTE_ADDR REMOTE_USER REMOTE_IDENT
+ REQUEST_METHOD HTTP_USER_AGENT AUTH_TYPE GATEWAY_INTERFACE
+ SCRIPT_NAME PATH_INFO PATH_TRANSLATED QUERY_STRING
+ CONTENT_TYPE CONTENT_LENGTH') { $ine{$_}=((defined $ENV{$_})?$ENV{$_}:'');}
+ %ENV=(); #-T
+
+ ###  Where am I?
+
+ $0=~m#^(((/)|\w:(\\)|[ \w]+(:)[^\\]).*?)(\.pll?|\.cgi)?$# and $sep=$3||$4||$5
+ and $root=$1 and ($0=~m#^(.*)$sep(.*)# and $path=$1 and $file=$2);
+
+ SWITCH: {
+  ($sep eq '/')  and $os='unix'                              and last;
+  ($sep eq '\\') and $os='win'                               and last;
+  ($sep eq ':')  and $os='mac' and require "StandardFile.pl" and last;
+ }
+
+ $ini{'^os'}      =$os;
+ $ini{'^path'}    =$path;
+ $ini{'^sep'}     =$sep;
+ $ini{'^pathsep'} =$path.$sep;
+ $ini{'^root'}    =$root;
+ $ini{'^file'}    =$file;
+ $ini{'^util'}    =$util =$root.'.dir'.$sep.'util'.$sep;
+ $ini{'^lib'}     =$lib  =$root.'.dir'.$sep;
+ $ini{'^viaCgiFlag'} =$viaCgiFlag=(!defined @ARGV and $ine{'REMOTE_ADDR'}); ## Are we invoked via CGI script?
+
+ local ($s,$m,$h,$md,$mo,$yr,$wd,$yd,$isdst)=gmtime(time); $wd=$yd=$isdst='';
+ $ini{'^when'}=sprintf("19%2.2d%2.2d%2.2d%2.2d%2.2d%2.2d",$yr,$mo+1,$md,$h,$m,$s);
+
+ for (qw'core trace switch misc file when sys sec web table') {require $util.'joel'.$sep."util$_.pll";}
+
+ &IniSwitch;
+
+ my $ini=$lib.$file; $ini=~s/(\.pl|\.pll|\.cgi)$//;
+
+
+ %ini=&IniLoad(*ini,
+  '',$util.'joel'.$sep.'utilinit.ini' ,$true,$true,
+  '',$ini.'.ini'                ,$true,$false,
+ );
+
+ if ($viaCgiFlag) {
+  &InxLoad;
+ } else {  ### called via the command line
+  $ine{'QUERY_STRING'}='';
+  $ine{'HTTP_USER_AGENT'}='Local';
+  $ine{'REMOTE_ADDR'}='000.000.000.000';
+  $ine{'REMOTE_HOST'}='localhost';
+  $ine{'PATH_INFO'}='Local';
+  $ine{'PATH_TRANSLATED'}='Local';
+  if (defined $inSwitch{'cgi='}) {
+   ($ine{'PATH_INFO'},$ine{'QUERY_STRING'})
+    =$inSwitch{'cgi='}=~/^([^\?]*)\??(.*)/;
+   &InxLoad;
+  }
+ }
+
+
+}
+
+1

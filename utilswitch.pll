@@ -1,0 +1,236 @@
+#!/usr/local/bin/perl5 -wT
+$ini{'^load'}.=$;.__FILE__.<<'END'
+#############################################################################
+
+ utilswitch.pll 0.9b 19940217-19971007 joel@school.net
+
+ DO NOT EDIT THIS!
+
+ This is a copy of the master version, and will be overwritten.
+ The master version is on jade.school.net in /www/cgi/util/joel/
+
+ Copyright (c) 1994-1997 Joel Parker Henderson joel@school.net 800-558-2197
+ This source code is private. Do not distribute without written permission.
+ 
+ UtilSwitch.pll is a perl library, and does not do anything on its own. 
+ It offers utilities for handling command-line switches, and is included
+ by many of my programs. UtilsSwitch defines many common switches:
+
+ -help          Print the main help page for this program.
+ -helpmore      Print the entire set of help pages for all included files.
+ -p             Print to stdout (same as -printToStdout)
+ -printToStderr Print output to STDERR
+ -printToStdout Print output to STDOUT
+ -printToFile=  Print output to file
+
+#############################################################################
+END
+;
+
+
+### 
+#  
+#  IniSwitch
+#
+#  We want to be able to specify switches on the command line like "-p"
+#  to mean "print". But since all 'perl -s' would do is set $p to true, 
+#  it's confusing to keep track of $p, and even more confusing when someone
+#  else is trying to look at your code to figure out what $p is, and
+#  where you set it (because you never set it anywhere, actually).
+#    
+#  Switches set with 'perl -s' also make using 'perl -sw' frustrating,
+#  because -w will report your switches as uninitialized, or used only
+#  once. There are similar problems if you use taintperl or 'perl -sT'.
+#
+#  So when we start a script, we give the switches more memorable names.
+#  All switch variables are loaded into a global association %inSwitch.
+#  The keys are the switches, and the values are the values of a switch.
+#  
+#    $inSwitch{'printToStdout'} = $true;
+#
+#  This makes your code much easier to understand.
+#  It's also good defensive programming.
+#  
+#  So far, this is an improvement in clarity only. Now for functional
+#  improvements: our switch system is more sophisticated than perl's
+#  simple perl -s command. Our switches can be located anywhere on the
+#  command line, and are read automatically into the %inSwitch array.
+#  Also, we have switches that can be set to equal specific values.
+#  For example:
+#
+#    somecommand -a -b=1234 -myflag -mystring="Hello"
+#
+#  will lead to:
+#
+#    $inSwitch{'a'}           == 1
+#    $inSwitch{'b='}          == 1234
+#    $inSwitch{'myflag'}      == 1
+#    $inSwitch{'mystring='}   == "Hello"
+#
+###
+  
+sub IniSwitch {  # Set Switches
+ &ExtractSwitchesFromText($ini{'^load'});
+
+ ## check every argument, to find switches
+
+ my @temp=();
+ for (@ARGV) {
+  if (/^-(\w+(=?))/) {  ## switches must start with -minus
+   if ($inSwitchHelp{$1}) {
+    $inSwitch{$1}= ($2) ? $' : 1;
+   }else{
+    print STDERR "\nSorry, I had to abort because '$1' isn't a valid switch.\n"
+    ."Use -help or -helpmore to get help information for this program.\n"
+    ."Valid switches are:\n\n".(&ValidSwitches)."\n";
+    exit -1; 
+   }
+  }else{
+   push(@temp,$_);
+  }
+ }
+ @ARGV=@temp; undef @temp;
+
+ ## Handle the switches defined by UtilsSwitch.pll (this file)
+ ## We want to convert the abbreviations to the long names for clarity.
+
+ &SwitchAlias('printToFile=','f=');
+ &SwitchAlias('printToStdout','p');
+ &SwitchAlias('trace','t');
+
+ ##
+ #  All your scripts are responsible for pushing into $ini{'^load'}
+ #  at the start of the script, before it ever requires UtilsSwitch.pll 
+ #  $ini{'^load'} should contain an explanation of what the script does.
+ ##
+
+ if ($inSwitch{'help'} or $inSwitch{'helpmore'}) {
+  @load=split(/$;/,$ini{'^load'}); shift @load;   ## degenerate first item
+  if ($inSwitch{'help'}) { @load=(shift @load); } ## only show the first one
+  for (@load) {
+   s/\n#+\s+$//;
+   /^(\S+).*?\n\s+([\w\.\-]+)\s+(\d+\.\d+\w?)\s+(\d{8})-(\d{8})\s+(\S+)\s+\n/s;
+   print '#' x 79, "\n\n __FILE__ $1\n\n Program: $2\n Version: $3\n NewDate: $4\n ModDate: $5\n Contact: $6\n\n$'\n\n";
+  }
+  print '#' x 79, "\n\n";
+  if ($inSwitch{'help'}) {
+   print " Valid switches are:\n\n".(&ValidSwitches)
+   ,"\n For more, use the -helpmore switch (you'll want to pipe it to more).\n\n";
+  }
+  exit 0;
+ }
+}
+
+sub ValidSwitches { 
+ my $t='';
+ for (sort keys %inSwitchHelp) {$t.=sprintf(" -%-14s %s\n",$_,$inSwitchHelp{$_});}
+ return $t;
+}
+
+###
+#
+# SwitchAlias is used when you have switches that mean the same thing.
+# A typical case is when you have switches like -trace and -t, where
+# one switch is the abbreviation for the other. 
+#
+# You would use:  &SwitchAlias('t','trace');
+#
+# This sets -t to true if either -t or -trace are true.
+# You can use multiple aliases, too:
+#
+#   &SwitchAlias('t','trace','tracing','traceon');
+#
+# You can also use SwitchAlias with value switches, e.g.
+#
+#   &SwitchAlias('count=','c=', 'linecount=')
+#
+# This sets -count= to whatever -count= or -c are.
+#
+# If more than one of the aliases is set, SwitchAlias prefers the leftmost
+# switch in the input array. E.g. in the example above, -count= would be 
+# preferred. If -count= is not set, then -c= would be preferred. If
+# -c= is also not set, then -linecount= would be used.
+#
+# SwitchAlias undefines the alias switches, so don't use them again.
+### 
+
+sub SwitchAlias {
+  local ($mainname, @aliasnames) =@_;
+  local ($a);
+  foreach $a (@aliasnames) {
+    # print STDERR "alias $a = $inSwitch{$a}\n";
+    if ($inSwitch{$a}) {
+      if (!$inSwitch{$mainname}) { $inSwitch{$mainname}=$inSwitch{$a}; }
+      undef $inSwitch{$a};
+    }
+  }
+  return $inSwitch{$mainname};
+}
+
+###
+#
+# ExtractSwitchesFromText is a really neat twist on how to define your
+# switches. Any line in the input text that starts with a -word is assumed
+# to be a switch followed by a helpful description of what the switch does.
+# (leading spaces and tabs are ignored).
+#
+# This adds the switches to the %inSwitchHelp global associative array,
+# where the keys are the switches, and the values are the descriptions. 
+#
+# So if you're writing your programs well, your $ni{'^load'} at the start
+# of a program will include descriptions of all your switches, like this:
+#
+#    Myprogram does cool things.
+#    Here are the switches you can use:
+#      -big     This prints the fonts using large sizes.
+#      -color   This prints in rainbow colors
+#      -all     This prints on every sheet of paper in your printer.
+#      -size=   Sets the font size you want to use
+#
+# You can extract your switches and help descriptions from $ini{'^load'}.
+# In fact, to enforce good programming and documentation, I'm making this
+# to only way to set switches. Therefore, to use switches, you *must*
+# have $ini{'^load'} at the start, and the $ini{'^load'} must have switches
+# and descriptions in it. We do this by having &Switch() automatically call:
+#
+#   &ExtractSwitchesFromText($ini{'^load'});
+#
+# &Switch also automatically includes my global switches. These are used
+# for common tasks like printing and outputting to a file. The call is:
+#
+#   &ExtractSwitchesFromText($switches);
+#
+# You can make switches take on only certain values by specifying the values
+# and the switch together, like this:
+#
+#   -color=red    Choose red
+#   -color=blue   Choose blue
+#   -color=green  Choose green
+#
+# This will prevent the user from choosing a color other than these.
+# You get the user's choice by looking at $inSwitch{'color='} 
+#
+###
+
+sub ExtractSwitchesFromText {
+ if (!$_[0]) { return; }
+ local (@a) = split(/\n/, $_[0]);  ## split the input text into an array 
+ local ($a,$description,$switch);
+ foreach $a (@a) {
+  if (($switch, $option, $description) =$a
+     =~ m#^[ \t]*-([a-z][a-z0-9]*=*)([a-z0-9]*)[ \t]+(.*)#i) {
+   if (defined $option) {$switch.=$option;}
+   $inSwitchHelp{$switch}=$description;
+   #print STDERR "Got switch {$switch} = ".$inSwitchHelp{$switch}."\n";      
+  }
+ }
+}
+
+sub PrintSwitcher {
+ local ($text, $outputFilename)=@_;
+ if ($inSwitch{'printToStderr'}) {print STDERR $text;}
+ if ($inSwitch{'printToStdout'}) {print $text;}
+ if ($inSwitch{'printToFile'})   {&TextsToFiles($text,$outputFilename);}
+}
+
+1

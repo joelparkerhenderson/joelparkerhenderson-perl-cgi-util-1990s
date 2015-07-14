@@ -1,0 +1,278 @@
+#!/usr/local/bin/perl5 -wT
+$ini{'^load'}.=$;.__FILE__.' '.<<'END'
+#############################################################################
+
+ utiltrace.pll 0.9b 19940901-19980312 joel@school.net
+
+ DO NOT EDIT THIS!
+
+ This is a copy of the master version, and will be overwritten.
+ The master version is on jade.school.net in /www/cgi/util/joel/
+
+ Copyright (c) 1994-1997 Joel Parker Henderson joel@school.net 800-558-2197
+ This source code is private. Do not distribute without written permission.
+
+ UtilTrace.pll is a perl library, and does not do anything on its own.
+ Utilities to trace script execution, to debug. Used by many of my programs.
+
+ -trace    Print the tracing info on stdout. 
+
+#############################################################################
+END
+;
+
+#### Put this into every file (program section) to satisfy 'perl -w';
+
+# Defined in UtilsTrace.pll, listed here to satisfy 'perl -w'
+  $true=$false=$trace=$notrace
+= $kNoTraceReports = $kTraceReports
+= $kNoTraceSubs    = $kTraceSubs
+= $kNoTraceArgs    = $kTraceArgs
+= $kTraceTop=$kTraceHigh=$kTraceMed=$kTraceLow=$kTraceBottom=$kTraceExempt
+= $kTraceAll=$kTraceNone=$kTraceStackStrLen=$kTraceStackHeightMax=0;
+# Repeat it.
+  $true=$false=$trace=$notrace
+= $kNoTraceReports = $kTraceReports
+= $kNoTraceSubs    = $kTraceSubs
+= $kNoTraceArgs    = $kTraceArgs
+= $kTraceTop=$kTraceHigh=$kTraceMed=$kTraceLow=$kTraceBottom=$kTraceExempt
+= $kTraceAll=$kTraceNone=$kTraceStackStrLen=$kTraceStackHeightMax=0;
+
+#############################################################################
+
+$true=1;    
+$false=0;   
+$trace=1;
+$notrace=0;            
+
+$kNoTraceReports 	= 0;
+$kTraceReports		= 1;
+$kNoTraceSubs 		= 0;
+$kTraceSubs 		= 1;
+$kNoTraceArgs		= 0;
+$kTraceArgs		= 1;
+
+$kTraceTop 		= 10;
+$kTraceHigh 		= $kTraceTop 	+10;
+$kTraceMed 		= $kTraceHigh	+10;
+$kTraceLow 		= $kTraceMed	+10;
+$kTraceBottom		= $kTraceLow	+10;
+$kTraceExempt		= $kTraceBottom	+10;
+
+$kTraceAll		= $kTraceBottom	+ 2;
+$kTraceNone 		= $kTraceTop 	- 2;
+
+$kTraceStackStrLen 	= 80;
+$kTraceStackHeightMax 	= 20;
+
+
+###
+#  WordlistToArray gives us an easy way to produce arrays from
+#  easy-to-type text. It changes weird characters into spaces,
+#  and splits the text into an array. 
+#
+#  For example, tracevar uses this function to let your write:
+#  
+#    &tracevar("here there nowhere");
+#  
+#  and you could equivalently use:
+#
+#    &tracevar('$here,
+#               $there,
+#               $nowhere');
+#
+#  We eliminate commas and dollar signs, in case
+#  they happen to come in by accidental typos.
+#
+###
+
+sub WordlistToArray { return split(/[\n,\$ ]+/, $_[0]); }
+
+
+
+#############################################################
+##
+##                     TRACING
+##
+#############################################################
+   
+
+sub Crash {
+  local ($msg) = @_;
+  print "------------------------- Crash! ------------------------\n";
+  print "Message: $msg\n\n";
+  die "$msg\n";
+}
+
+
+#--------------------------
+
+%me=();
+$me{'level'}		= -1;
+$me{'name'} 		= '*global*';
+$me{'priority'}		= 999;
+$me{'traceSubs'}     	= $kTraceSubs;
+$me{'traceReports'}  	= $kTraceReports;
+$me{'parentSubs'}  	= $true;
+
+sub traceinit {
+  local (%f, $z);
+  local ($f{'name'}, $f{'args'},
+         $f{'traceSubs'}, $f{'traceReports'}, $f{'traceArgs'}) = @_;
+
+  # Only trace the suboutines and reports of the current function
+  # if and only if the calling (super) function is tracing subroutines.
+  # subroutines and reports.
+
+  $f{'traceSubs'} *= $me{'traceSubs'};
+  $f{'traceReports'} *= $me{'traceReports'};
+
+  $f{'parentTraceSubs'} = $me{'traceSubs'};
+  $f{'level'} = 1+$me{'level'};  # $traceMe from the calling (super) function.
+
+  if ($f{'parentTraceSubs'}) {
+    $z = (" " x (3*$f{'level'})) ."+ $f{'name'}$f{'args'}\n";
+    if ($global_switch{'trace'}) { print $z; }
+    if ($state{'TRACER'}) {print TRACER $z};
+  }
+  %f;
+}
+
+sub tracedone {
+
+  # We don't declare $me as local because we specifically want
+  # it to be the $me of the current function (the function that
+  # is calling &tracedone();
+  local ($z) = "";
+
+  if ($me{'parentTraceSubs'}) {
+    $z =  (" " x (3*$me{'level'}))."- $me{'name'}\n";
+    if ($global_switch{'trace'}) { print $z; }
+    if ($state{'TRACER'}) {print TRACER $z};
+  }
+}
+
+###
+#  trace
+#
+#  prints your message to the screen,
+#  and to a file TRACER (if the file is open.
+#  Automatically appends a \n.
+###
+
+sub trace {
+  local ($z) = '';
+  if ($me{'traceReports'}) {
+    $z = (" " x (3*$me{'level'})).": $_[0] \n";
+    if ($global_switch{'trace'}) { print $z; }
+    if ($state{'TRACER'}) {print TRACER $z};
+  }
+}
+
+###
+#  tracex 
+#
+#  tracex is the same as trace,
+#  except that tracex doesn't append the \n
+###
+
+sub tracex {
+  local ($z) = '';
+  if ($me{'traceReports'}) {
+    $z = (" " x (3*$me{'level'})).": $_[0] ";
+    if ($global_switch{'trace'}) { print $z; }
+    if ($state{'TRACER'}) {print TRACER $z};
+  }
+}
+
+###
+#
+#  tracevar (wordlistVariableNames [,quietFlag])
+#
+#  This is an easy way to print a bunch of variable names,
+#  and the variable values. For example:
+#
+#    $here="New York"; $there="San Francisco"; $nowhere="Houston";
+#    &tracevar('here there nowhere');
+#    ==> "[here=New York] [there=San Francisco] [nowhere=Houston]"
+#
+#  Helpful: tracevar uses our standard wordlists, so if your input text
+#  contains dollar signs, commas, and newlines, then they will all be
+#  stripped out, as will more than one space in a row.
+#  This means that if it's convenient, you can write:  
+#  
+#    &tracevar('$here,
+#               $there,
+#               $nowhere');
+#
+#  If $quietFlag is used, then the resulting text will not be printed;
+#  the resulting text will still be returned as usual. Used by &traceinit.
+#
+###
+
+sub tracevar {
+                          
+  local ($tracevar_wordlist, $tracevar_quietFlag) = @_;
+  if (!$tracevar_wordlist) { return 0; }
+return 0;
+  local (@tracevar_vararray) = &WordlistToArray($tracevar_wordlist);
+  local ($tracevar_var, $tracevar_build,$tracevar_val);
+  $tracevar_build="";
+  foreach $tracevar_var (@tracevar_vararray) {
+
+print STDERR "eval hello\n";	eval ('print "hello";'); warn $@ if $@;
+print STDERR "set foo\n";	$foo = "hello";
+print STDERR "Setting bar \n";	eval ('$bar=$foo;'); warn $@ if $@; undef $bar;
+print STDERR "printing \n";	print $foo.$bar."\n";
+print STDERR "complete \n";
+
+print STDERR "Starting \n";
+$z='y';
+eval { print STDERR $z; }; warn $@ if $@;
+
+print STDERR "After the eval\n";
+
+    if (eval 'defined $'.$tracevar_var) {
+print STDERR "WorldLIST!!!";
+      $tracevar_val= eval ('$'.$tracevar_var.';'); 
+      #eval ('$tracevar_build.="[$tracevar_var=$'.$tracevar_var.'] "'); 
+      $tracevar_build .="[$tracevar_var=$tracevar_val] ";
+    }
+print STDERR "After the IF eval\n";
+  }
+  if ($tracevar_build ne "" && !$tracevar_quietFlag){&trace($tracevar_build);}
+  $tracevar_build;
+}
+
+###
+#  tracewarning 
+#
+#  Prints out some noticible warning message, then calls trace.
+###
+
+sub tracewarning {
+  &trace("\n********************* WARNING ************************\n\n"
+        .$_[0]
+        ."\n********************* END ****************************\n\n");
+}
+
+###
+#  traceadvice 
+#
+#  Use this to warn and give advice for corrections.
+#
+#  E.g.   &traceadvice('Cannot save!',
+#                      '<filebreak>',
+#                      '<filebreak filename="mypage.html">');
+###
+
+sub traceadvice {
+  # local ($warningMessage, $lookForLine, $replaceWithLine) = @_;
+  &tracewarning($_[0]."\n\n"
+               ."Check for a line that has:\n\n"
+               .'    '.$_[1]."\n\n"
+               ."And change it to something like:\n\n"
+               .'    '.$_[2]."\n");
+}
+
+1

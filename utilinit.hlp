@@ -1,0 +1,15 @@
+# basic help for UtilLocal.ini
+#
+# MailerRequiresAddressFlag  if you need to include the email address on the mailer's command line
+# MailerTempFile             if you need to create a temp file before mailing
+# HotmailPostmasterEmail     email address of postmaster who receives cc:s and erros
+# CGIPathURL                 the cgi-bin path
+# SysWebRoot                 the root directory of the local system's web area
+#
+# Note about SysWebRoot:
+# In other words, all web files should be under this directory, though perhaps
+# under by multiple subdirectories. This is used to make sure cgi scripts
+# like "begin" and "scriptbridge" are guaranteed to write files within the
+# web area. It's not perfect security (conf files are usually exposed),
+# but it helps.
+

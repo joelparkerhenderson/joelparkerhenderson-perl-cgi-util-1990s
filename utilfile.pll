@@ -1,0 +1,609 @@
+#!/usr/local/bin/perl -wT
+$ini{'^load'}.=$;.__FILE__.' '.<<'END'
+#############################################################################
+
+ utilfile.pll 0.5b 19940508-19971007 joel@school.net
+
+ DO NOT EDIT THIS!
+
+ This is a copy of the master version, and will be overwritten.
+ The master version is on jade.school.net in /www/cgi/util/joel/
+
+ Copyright (c) 1994-1997 Joel Parker Henderson joel@school.net 800-558-2197
+ This source code is private. Do not distribute without written permission.
+
+ UtilFile.pll is a perl library, and does not do anything on its own.
+ It offers utilities for handling files, input/output, read/write, etc.
+
+#############################################################################
+END
+;
+
+##
+#   $state{}
+#
+#   This is an associative array that maintains the states of 
+#   all the file streams of your program. When a file hook
+#   (e.g. MYFILE) is opened or closed, you should set the state:
+#
+#       $state{MYFILE} = $eFileOpen; 	# MYFILE is open
+#       $state{MYFILE} = $eFileUnknown; # unknown state, or has never yet  been used.
+#       $state{MYFILE} = $eFileClosed;  # MYFILE is closed #
+#
+#       (and so on. see below for all possible enums of state)
+#
+#   This is useful because it promises that your stream hooks exist
+#   before you print to them.
+#
+#   For example, suppose you have a function that should write something
+#   to the LOG file, but obviously it should only write if the LOG file
+#   has already been opened. You can say something like this:
+#
+#      if ($state{"LOG"}=$eFileOpen) { print LOG "Kilroy was here"; }
+#
+##
+
+@state = "";
+
+
+##
+#   gFileAttempt{hook, mode, name, operation, success}
+#
+#   This maintains the information about the most recent attempt made
+#   to open or close a file. You can use gFileAttempt on its own, but 
+#   it's really meant to be used with calls to myopen and myclose
+#   (which replace the open and close functions).
+#
+#   gFileAttempt{'operation'} can be set to one of:
+#       open, close.
+#
+#   gFileAttempt{"success"} can set to one of:
+#       eFile0pen, eFileClosed, eFileError, eFileUnknown.
+#
+##
+
+@gFileAttempt = "";
+
+$eFileUnknown 	= 0;
+$eFileOpen	= 1;
+$eFileClosed	= 2;
+$eFileError	= -1;
+
+sub PrintGFileAttempt {
+    $gFileAttempt{'operation'}.":"
+    ."$gFileAttempt{'hook'} \'$gFileAttempt{'mode'}\' $gFileAttempt{'name'}"
+    ."=".$gFileAttempt{'success'};
+}
+
+
+##
+#  myopen
+#
+#  Call this instead of open.  Here's why: myopen maintains information
+#  on the most recent file you attempted to open, stored in the variable
+#  gFileAttempt (see above for details on gFileAttempt).
+#
+#  This info is very useful for debugging, because myopen will
+#  call the &CrashFile function if there was a problem opening the
+#  file. CrashFile will use the information in the state variable to
+#  tell you on what error the open request crashed.
+#
+#  Finally, myopen sets a state variable to the name of your
+#  filehook, and sets it to true. This means that you can always tell
+#  if a particular stream is open. See the help on the state variables
+#  for more information.
+#
+##
+
+sub myopen {
+   local ($hook, $mode, $name) = @_;
+   local (%me) = &traceinit('myopen', 'hook mode name'
+                           , $kTraceSubs, $kTraceReports, $kTraceArgs);
+   $gFileAttempt{'hook'}=$hook;
+   $gFileAttempt{'mode'}=$mode;
+   $gFileAttempt{'name'}=$name;
+   $gFileAttempt{'operation'}="open";
+   $gFileAttempt{'success'}=$eFileUnknown;
+
+   open ($hook, $mode.$name) || &CrashFile($!);
+   if ($gFileAttempt{'success'}==$eFileUnknown)
+	     {$gFileAttempt{'success'}=$eFileOpen;}
+   $state{$hook}=$gFileAttempt{'success'};
+   #&trace(&PrintGFileAttempt()."\n");
+   &tracedone();
+}
+
+sub myclose {
+   local ($hook) = @_;
+   local (%me) = &traceinit('myclose', 'hook' ,$kTraceSubs, $kTraceReports, $kTraceArgs);
+   $gFileAttempt{'hook'}=$hook;
+   $gFileAttempt{'mode'}="";
+   $gFileAttempt{'name'}="";
+   $gFileAttempt{'operation'}="close";
+   $gFileAttempt{'success'}=$eFileUnknown;
+
+   close $hook || &CrashFile($!);
+   if ($gFileAttempt{'success'}==$eFileUnknown)
+        {$gFileAttempt{'success'}=$eFileClosed;}
+   $state{$hook}=$gFileAttempt{'success'};
+   #&trace(&PrintGFileAttempt()."\n");
+   &tracedone();
+}
+
+
+##
+#  CrashFile
+#
+#  This is called when myopen/myclose gets an error back when trying to
+#  open a file. You are responsible for writing your own &Crash
+#  subroutine, which should take the single parameter of an error
+#  message (text string) to write to wherever (console, file, etc.)
+#
+##
+
+sub CrashFile {
+  local ($syserr) = @_;
+  $gOpenAttempt{'success'}=$eFileError;  # -1 means failed.
+  &Crash("Cannot $gFileAttempt{'operation'} file.\n "
+     .&PrintGFileAttempt()."==$syserr\n"
+     ."hook=$gFileAttempt{'hook'}\n"
+     ."mode=$gFileAttempt{'mode'}\n"
+     ."name=$gFileAttempt{'name'}\n"
+     ."operation=$gFileAttempt{'operation'}\n"
+     ."success=$gFileAttempt{'success'}\n");
+  $gOpenAttempt{'success'}=$eFileError;  # -1 means failed.
+}
+
+##
+#  TestFileOpen, TestFileClosed, TestFileError, TestFileUnknown
+#
+#  Quick ways to test file stream hooks.
+#
+#  Relies upon you having consistantly used myopen and myclose
+#  (instead of open and close), and the $state{} array.
+#
+##
+
+sub TestFileOpen {
+    local ($hook) = @_;
+    local ($temp) = '0';
+    if ($state{$hook}==$eFileOpen) { $temp = 1 };
+    $temp;
+}
+
+sub TestFileClosed {
+    local ($hook) = @_;
+    local ($temp) = '0';
+    if ($state{$hook}==$eFileClosed) { $temp = 1 };
+    $temp;
+}
+
+sub TestFileError {
+    local ($hook) = @_;
+    local ($temp) = '0';
+    if ($state{$hook}==$eFileError) { $temp = 1 };
+    $temp;
+}
+
+sub TestFileUnknown {
+    local ($hook) = @_;
+    local ($temp) = '0';
+    if ($state{$hook}==$eFileUnknown) { $temp = 1 };
+    $temp;
+}
+
+
+########################  Easy Reading & Writing  ######################
+
+sub FileAppend {
+  local ($filename,$content)=@_;
+  &trace("Append [$content] to $filename");
+  &myopen ('FILE', ">> $filename");
+  print FILE $content;
+  &myclose('FILE');
+}
+
+## Greps for the first occurance of $target in file $filename.
+## Greps for the first occurance of $target in file $filename.
+
+sub FileGrep1 {
+  local ($filename,$target)=@_;
+  &trace("FileGrep1 [$target] in $filename");
+  &myopen('GREP',"grep \"$target\" $filename");
+  local ($result) = <GREP>;
+  &myclose('GREP');
+  return $result;
+}
+
+        
+###
+#
+#  LoadTDF
+#
+#  This helps you open a Tab-Delimited File, like one produced by
+#  any typical database program such as Lotus 123, Excel, or Sidekick.
+#  This returns a line that has the field names in it, and the successive
+#  entries.
+#
+#  Here's the right way to call this:
+#
+#    local ($fieldnames, @entries) = &myopenTDF ($filename);
+#    local (@fieldnames) = split ("\t", $fieldnames);
+#
+###
+        
+sub LoadTDF {
+
+  local ($filename)=@_;
+  local (%me) = &traceinit('LoadTDF','filename'
+                        , $kNoTraceSubs, $kTraceReports, $kTraceArgs);
+
+
+  local (@entries) = &ReadEntireFileToArray($filename);
+  grep(chop,@entries);
+  local ($fieldnames) = shift(@entries);  ## first line contains field names
+  &tracedone(); return ($fieldnames, @entries);
+}  
+
+
+sub AppendTDF {
+  
+  local ($filename, $lineToAppend)=@_;
+  local ($linecount);
+  local (%me) = &traceinit('AppendTDF','filename'
+                        , $kNoTraceSubs, $kTraceReports, $kTraceArgs);
+  &myopen('TDF', '>>', $filename);
+  print TDF "$lineToAppend\n";
+  &myclose('TDF');
+  &myopen('WC', "wc -l $filename | ");
+  $linecount = <WC>;
+  &myclose('WC');
+  $linecount =~ s/[^\d]//g;
+  &tracedone(); return $linecount-2;  ##  -2 gives entry number
+}
+     
+
+###
+#
+#  SearchTDF
+#
+#  Search for a target string in a TDF file.
+#  Currently, this doesn't support searching by fields, but it will.
+#
+#  If $returnIndexesFlag is true then the index (line number) of each entry
+#  is returned in the $indexes string. This is useful if you want to 
+#  search back into the data for successive entries, if you want to use 
+#  the entry numbers in further queries, etc.  However, it eats time.
+#
+#  The first line after you call &SearchTDF should be:
+#    local (@fieldnames) = split ("\t", $fieldnames);
+#
+#  The first line after you call &SearchTDF should be:
+#    local (@fieldnames) = split ("\t", $fieldnames);
+#
+###
+
+
+sub SearchTDF {
+
+  local ($filename, $returnIndexesFlag, $target)=@_;
+  local (%me) = &traceinit('SearchTDF','filename returnIndexesFlag target'
+                        , $kNoTraceSubs, $kTraceReports, $kTraceArgs);
+
+  local ($fieldnames,@entries)=&LoadTDF($filename);
+  local (@fieldnames) = split ("\t", $fieldnames);
+  local ($indexes,$i,$index);
+  
+  ## append index to each entry
+  if ($returnIndexesFlag){ for $i (0..$#entries) {$entries[$i].="\t$i"; }}
+
+  local (@found) = grep(/$target/i,@entries);
+
+  ## chop the index off each found entry, then append it to the string
+  if ($returnIndexesFlag){
+    for $i (0..$#found) {
+     ($found[$i],$index) = $found[$i] =~ m/(.*)\t(\d+)$/;
+     $indexes .= "$index\t";
+    }
+    chop $indexes;     ## chop off the trailing \t
+  }
+
+  ($fieldnames, $indexes, @found);
+}
+
+sub IndexTDF2Entry {
+
+  local ($filename, $indexTarget)=@_;
+  local (%me) = &traceinit('IndexTDF2Entry','filename indexTarget'
+                        , $kNoTraceSubs, $kTraceReports, $kTraceArgs);
+
+  local ($fieldnames,@entries)=&LoadTDF($filename);
+  &tracedone(); return ($fieldnames,$entries[$indexTarget]);
+}
+  
+
+sub ReplaceLineInFile {
+
+  local ($filename, $linenumber, $line)=@_;
+  local (%me) = &traceinit('ReplaceLineInFile','filename linenumber line'
+                        , $kNoTraceSubs, $kTraceReports, $kTraceArgs);
+
+  local (@f)=&ReadEntireFileToArray($filename);
+  $f[$linenumber]=$line;
+  &WriteArrayToEntireFile($filename, @f);
+  &tracedone(); 
+}
+
+## ReplaceEntryInTDF just adds 1 to the linenumber (entryIndex) to account
+## for the first line of field name data, and then calls ReplaceLineInFile.
+   
+sub ReplaceEntryInTDF {
+  local ($filename, $entryIndex, $entry)=@_;
+  &ReplaceLineInFile ($filename, $entryIndex+1, $entry);                        
+}
+  
+
+###
+#
+#  LoadAssociationFile
+#
+#  This gives an easy way to load an associative array into memory.
+#  You provide the name of the associative array, and the filename,
+#  and this function loads the array.
+#
+#  E.g. I want to load %color with %color{'apple'} == "red" and so on.
+#  I have a file that has:
+#
+#     apple red
+#     banana yellow
+#     carrot orange
+#
+#  where the separators between key and vlue can be any number of
+#  consecutive spaces, tabs, and commas.
+#
+#  I would load the array like this:
+#
+#    %color = &LoadAssociationFile($filename);
+#
+#  If $keepKeyFlag is true, then the $key is kept as part of the value.
+#  e.g  assume input ==  "carrot orange"
+#  then
+#   if $keepKeyFlag ==> $a{carrot}="carrot orange"
+#              else ==> $a{carrot}="orange"
+#
+#  Normally you will not need to use $keepKeyFlag.
+#
+##
+
+sub LoadAssociationFile {
+  local ($filename, $keepKeyFlag) = @_;
+  local (%me) = &traceinit('LoadAssociationFile','filename'
+                         , $kNoTraceSubs, $kTraceReports, $kTraceArgs);
+  local (@arr);
+  @arr = &ReadEntireFileToArray($filename);
+  local ($a, $key, $val, %temp)="";
+
+  for $i (0..$#arr) {
+   if ($arr[$i]=~/^[\t ]*$/) { print "$i\n"; }
+  }
+  
+  if (defined $keepKeyFlag && $keepKeyFlag) {
+    foreach $a (@arr) {
+
+      ($key)=$a=~/^(\S+)\s/;
+      #&tracevar('key val'); 
+      if ($key) { $temp{$key}=$a; }
+      else { &trace("no init on: $a == $key "); }
+    }
+  } else {
+    foreach $a (@arr) {
+      ($key, $val)=$a=~/^(\S+)\s+(.*)/;
+      #&tracevar('key val'); 
+      if ($key && $val) { $temp{$key}=$val; }
+      else { &trace("no init on: $a == $key  ||  $val"); }
+    }
+  }
+  &tracedone; %temp;
+}
+
+## used to be: GetFileViaURL
+sub ReadFileFromURLToText {
+  
+  local ($url) = @_;
+  local (%me) = &traceinit('ReadFileFromURL','url'
+                         , $kNoTraceSubs, $kTraceReports, $kTraceArgs);
+
+  local ($text);
+  
+  if (($url=~m#^http://#i) || ($url=~m#^gopher://#i)) {
+    &trace("Opening $url via the internet");  
+    $text = &ReadEntireFileToText("fido $url |");
+  } else {
+    &trace("Opening $url via local file");
+    local ($filename) = $url;
+    $filename =~ s#^file://##i;
+    $text = &ReadEntireFileToText($url);
+  }
+  &tracedone; $text;
+}
+  
+
+
+##########################################################################
+##
+##                DIRECTORY & FILENAME MANIPULATION
+##
+#########################################################################
+
+
+###
+#
+#  ReplaceExtension (filename, oldExtension, newExtension)
+#
+#  E.g.
+#   &ReplaceExtension ("myfile.txt",".txt",".html") ==> "myfile.html"
+#   &ReplaceExtension("myfile_plain.txt","_plain.txt","_image.html")
+#       ==> "myfile_image.html"
+#
+#  We do it in this very convoluted and confusing way to allow us to have
+#  periods and other strange characters (that grep uses in different ways).
+#
+###
+
+sub ReplaceExtension {
+  local ($filename,$oldext,$newext)=@_;
+  local (%me)=&traceinit('ReplaceExtension','filename oldext newext'
+                        , $kTraceSubs, $kTraceReports, $kNoTraceArgs);
+
+  ## Does the filename end in oldext?
+  local ($i) = index($filename,$oldext,-1+length($filename)-length($oldext));
+  if ($i==-1) {
+    &trace("Warning: file does not contain $oldext!");
+    &tracedone(); return '';
+  }
+  substr($filename,$i,999)=$newext;
+  &tracedone(); $filename;
+}
+
+####
+#
+#  Filebase (pathfile) ==> filebase   
+#
+#  Same as the system's Basename function.
+# 
+#  E.g.  &Filebase("/home/joel/myfile.txt") ==> "myfile"
+# 
+#  The filebase is everything after the path, and before any extension
+#  character, any of these:
+#  
+#          _ - .   (underline, dash, period)
+#  
+###
+
+sub Filebase {
+  local ($filename)=@_;
+  local ($filebase) = $filename;
+  $filebase =~ s#.*/##;
+  $filebase =~ s#^([\w\d]*)[_\.-].*#$1#;
+  $filebase;
+}
+ 
+###
+#  
+#  PathFile2PathAndFile (pathfile)  ==>  (path,file)
+#  
+#  Splits a full pathfile into path and file pieces.
+#  The path piece does not include a final slash,   
+#  so be sure to put the / back in if  you remerge the pieces!
+#  
+#  E.g.  &PathFile2PathAndFile("/home/joel/hello.txt")
+#        ==> ("/home/joel","hello.txt")
+#        
+###      
+         
+sub PathFile2PathAndFile {
+  local ($path) = $_[0] =~ m#(.*)/#;
+  local ($file) = $_[0] =~ m#([^/]*)$#;
+  ($path, $file);
+}
+ 
+###
+#  
+#  PathMover (pathfile, newpath) ==> newpathfile
+#  
+#  This moves file from path/file to newpath/file.
+#  
+#  E.g.
+#    &PathMover("/home/joel/edupage.html","/http.jump/today")
+#    ==> "/http.jump/today/edupage.html"
+#    ==> move file from my home directory into the public web directory.
+#    
+#  [General Utility]
+###
+
+sub PathMover {
+  local ($pathfile,$newpath)=@_;
+  local ($path,$file)=&PathFile2PathAndFile($pathfile);
+  system("mv $pathfile $newpath/$file");
+  return "$newpath/$file";
+}
+
+###
+#
+#  GetLS (pathfileExpression [,limit]) ==> @pathfiles
+#
+#  Does an "ls" on the pathfileExpression, and returns file entries:
+#
+#  &GetLS("*.html")  ==> ("myfile.html", "herfile.html", "etc.html")
+#                              i.e. all the .html files in the directory
+#
+#  If limit is > 0, then return only the first $limit entries:
+#
+#  &GetLS("*.html,2) ==> ("myfile.html", "herfile.html")
+#                            i.e. the first two .html files in the directory
+#
+#  [General I/O utility] 
+### 
+        
+sub GetLS {
+  local ($pathfileExpression,$limit)=@_;
+  if (!$pathfileExpression) { $pathfileExpression = "*"; } ## default to all files
+  local (%me)=&traceinit('GetLS','pathfileExpression limit'
+		        , $kTraceSubs, $kTraceReports, $kTraceArgs);
+  local (@ls)=&ReadEntireFileToArray("ls $pathfileExpression -d -1 |", $limit);
+  &tracedone(); @ls;
+}
+
+sub GetLSfromArray {
+  local (@pathfileExpressions, $limit) = @_;
+  local ($pfe,@ls);
+  local (%me)=&traceinit('GetLSfromArray','pathfileExpression limit'
+                        , $kTraceSubs, $kTraceReports, $kTraceArgs);
+  foreach $pfe (@pathfileExpressions) { push (@ls, &GetLS($pfe,$limit)); }
+  &tracedone(); @ls;
+}
+
+sub GetLSthenCatFilesToText {
+  local ($pathfileExpression, $limit) = @_;
+  local (@ls) = &GetLS($pathfileExpression,$limit);
+  local ($ls,$text);
+  foreach $ls (@ls) {
+    $text.=&ReadEntireFileToText($ls)."\n";
+  }
+  &tracedone(); $text;
+}
+
+##########################################################################
+##
+##                     MACINTOSH SPECIFICS
+##
+##########################################################################
+
+sub PrintFileInfo {
+ local ($longfile) =@_;
+ local (%me) = &traceinit('PrintFileInfo','longfile' 
+			 , $kNoTraceSubs, $kTraceReports,$kTraceArgs);
+ local (%file);
+ ($file{'creator'}, $file{'type'}) =  &MacPerl'GetFileInfo($longfile);
+ ($file{'path'}, $file{'name'}) = $longfile =~ /(.*:)(.*)/;
+ &trace(
+  "  Path: $file{'path'}\n"
+	."  File: $file{'name'}\n"
+ ."  Type: $file{'creator'}, $file{'type'}\n");
+ &tracedone(); %file;
+}
+
+sub SetSameFileCreatorAndType {
+ local ($sourceFile, $fileToChange) = @_;
+ local (%me) = &traceinit('SetSameFileCreatorAndType','sourceFile,fileToChange'
+			 , $kNoTraceSubs, $kTraceReports, $kTraceArgs);
+ local ($creator, $type) =  &MacPerl'GetFileInfo($sourceFile);
+ &trace("Creator: $creator  Type: $type \n");
+ &MacPerl'SetFileInfo($creator,$type,$fileToChange);
+ &PrintFileInfo($sourceFile);
+ &PrintFileInfo($fileToChange);
+ &tracedone(); 
+}
+
+############################################################################
+

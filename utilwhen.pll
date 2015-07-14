@@ -1,0 +1,728 @@
+#!/usr/local/bin/perl -wT
+$ini{'^load'}.=$;.__FILE__.' '.<<'END'
+#############################################################################
+
+ utilwhen.pll 0.9b 19940901-19980312 joel@school.net
+
+ DO NOT EDIT THIS!
+
+ This is a copy of the master version, and will be overwritten.
+ The master version is on jade.school.net in /www/cgi/util/joel/
+
+ Copyright (c) 1994-1997 Joel Parker Henderson joel@school.net 800-558-2197
+ This source code is private. Do not distribute without written permission.
+
+ utilwhen.pll is a perl library, and does not do anything on its own.
+ It offers utilities for handling dates and times.
+
+#############################################################################
+END
+;
+
+$gInitFlag_UtilWhen=0;#-w
+$gInitFlag_UtilWhen=&InitWhen();  # so the people that are requiring us don't forget to do it.
+
+###
+#
+#  InitWhen: initializes all the date and time constants.
+#
+#  InitWhen must be called before you use any of these
+#  date or time functions. This utility library calls
+#  InitWhen for you automatically, so you don't have to
+#  worry about calling it yourself.
+#
+##
+
+sub InitWhen {
+
+  @kWhen_MonthNames  =qw'January February March April May June July August September October November December';
+  @kWhen_MonthMdays  =qw'031 028 031 030 031 030 031 031 030 031 030 031';
+  @kWhen_MonthDaySum =qw'000 031 059 090 120 151 181 212 243 273 304 334';
+  @kWhen_DayNames    =qw'Sunday Monday Tuesday Wednesday Thursday Friday Saturday Sunday';
+
+  ## This means that January 1, 1900 is a Monday
+  ## We use this as our internal date reference point.
+  $kWhen_StartYear=1900; $kWhen_StartDay=1; # 0=Sunday, 1=Monday, etc.
+
+  $kWhen_400YearsDays = 146097;    
+
+  return 1;  # set to true if we've initied successfully
+}
+
+
+#####################  MONTH  #########################################
+
+
+###
+#
+#  MonthnameToMonthnum (text, truncateFlag, startOfStringFlag)
+#
+#  Given input like "Jan" or "February", this returns the number of the
+#  month, where Jan=1, Feb=2, etc.  If there is no match, returns 0.
+#
+#  If $truncateFlag, then the match looks for Jan, Feb, Mar, etc.
+#  If $truncateFlag is false or missing, then the match looks for the
+#    complete name of the month like January, February, etc.
+#
+#  If $startOfStringFlag, then the match must occur at the start of
+#  the string. Regardless, all leading whitespace is ignored.
+#
+#  The match is case insensitive.
+#
+#  BIG WARNING: If you're searching for a month name in a long string
+#  of text, and you're using the truncateFlag, beware that "aug" will
+#  match "laughter" and "augement" and other words like that. (And 
+#  other months will have similar problems.)
+#
+###
+
+sub MonthnameToMonthnum {
+  local ($text, $truncateFlag, $startOfStringFlag)=@_;
+  local ($i)=12;
+  local ($target, $foundflag)=0;
+  while (($i > 0) && !$foundflag) { 
+    $target = substr($kWhen_MonthNames[$i-1],0,($truncateFlag)?3:99);
+    if ($startOfStringFlag) { $foundflag=$text=~/^[ \t]*$target/i; }
+                       else { $foundflag=$text =~/$target/i; }
+    $i--;
+  }
+  return $i+1;
+}
+
+###
+#
+#  MonthnumToMonthname
+#
+#  You put in a number to get the name of the corresponding month.
+#  If the second argument is true, then truncate to 3 letters (Jan, Feb, etc.)
+#
+#    &MonthnumToMonthname(12)    -->  December
+#    &MonthNumToMonthName(12,1)  -->  Dec
+#
+###
+
+sub MonthnumToMonthname {
+  substr($kWhen_MonthNames[$_[0]-1],0,($_[1])?3:99);
+}
+
+
+#####################  DAY  #########################################
+
+
+###
+#
+#  DaynameToDaynum (text, truncateFlag, startOfStringFlag)
+#
+#  Just like MonthnameToMonthnum.  0=Sun, 1=Mon, .. 6=Sat.
+#
+###
+
+sub DaynameToDaynum {
+  local ($text, $truncateFlag, $startOfStringFlag)=@_;
+  local ($i)=6;
+  local ($target, $foundflag)=0;
+  while (($i > 0) && !$foundflag) {
+    $target = substr($kWhen_DayNames[$i-1],0,($truncateFlag)?3:99);
+    if ($startOfStringFlag) { $foundflag=$text=~/^[ \t]$target/i; }
+                       else { $foundflag=$text =~/$target/i; }
+    $i--;
+  }
+  return $i;
+}
+
+###
+#
+#  DaynumToDayname
+#
+#  Just like MonthnumToMonthname.  0=Sun, 1=Mon, .. 6=Sat, 7=Sun.
+#  (Sun=7 is provided for compatibility with some Unix/Linux commands)
+#
+###
+
+sub DaynumToDayname {
+  substr($kWhen_DayNames[$_[0]],0,($_[1])?3:99);
+}
+
+###
+#
+#  DateToDaynum (year, month, mday)
+#
+#  Converts a date into the correct day.
+#  E.g.
+#    &DateToDaynum(1994, 11, 24) ==> 4 ## Thus Nov.11,1994 was a Thursday
+#
+#  Warning! This doesn't handle leap years, or years before 1994 yet.
+#  In other words, it works for 1994-1995.
+#
+###
+
+sub DateToDaynum {
+  local ($year,$month,$mday)=@_;
+  $days=&DateToIday($year,$month,$mday);
+  return &Mod(($kWhen_StartDay-1)+$days,7);
+}
+
+sub DateToDayname {
+  local ($year, $month, $mday, $truncateFlag) = @_;
+  return &DaynumToDayname(&DateToDaynum($year, $month, $mday), $truncateFlag);
+}
+
+#########################  INTERNAL DATE  ########################
+
+###
+#
+#  IdayToDate (iday)  ==>  (year, month, mday)
+#
+#  Calculate the date, given an internal date representation.
+#  See DateToIday below for details on the internal representation.
+#
+###
+
+sub IdayToDate {
+ my $iday=$_[0];
+ my $yr=$kWhen_StartYear; my $mo=0; my $md=0;
+ while ($iday>$kWhen_400YearsDays) {$yr+=400; $iday-=$kWhen_400YearsDays;}
+
+ $loop=1; while ($loop) {
+  $daysThisYear=(($yr%4==0 and $yr%100!=0) or $yr%400==0) ?366:365;
+  if ($iday>=$daysThisYear) { $iday-=$daysThisYear; $yr++; } else {$loop=0;}
+ }
+ while ($iday>$kWhen_MonthDaySum[$mo] and $mo<12) {$mo++;}
+ return ($yr,$mo,1+$iday-$kWhen_MonthDaySum[$mo-1]);
+}
+
+sub IdayToDatecode {
+  local ($year, $month, $mday) = &IdayToDate($_[0]);
+  &trace("IdayToDatecode: $year, $month, $mday");
+  return &YMD2Datecode($year,$month,$mday);
+}
+
+###
+#
+#  DateToIday (year, month, day) ==>  iday
+#
+#  Calculate the total number of days from the StartYear, January 1
+#  (the "internal" date representation). Days in a year range from 1-365.
+#
+###
+
+sub DateToIday {
+ return Date1Date2ToDaysDiff($_[0],$_[1],$_[2],$kWhen_StartYear,01,01);  
+}
+
+sub DatecodeToIday {
+  local ($year, $month, $mday) = &Datecode2YMD($_[0]);
+  &trace("DatecodeToIday: $year, $month, $mday");
+  return &DateToIday($year,$month,$mday);
+}
+
+###
+#
+#  Date1Date2ToDaysDiff (yr1, mo1, md1, yr2, mo2, md2) ==> difference in days.
+#  The larger date should probably go first, e.g. date1=future date2=past.
+#  If the larger date goes second, then you will get negative numbers.
+#
+#  For example:
+#   If two days are the same, the difference is 0.
+#   If two days are a week apart, the difference is 7.
+#   If two days are a year apart, the difference is 365 (or 366).
+#
+###
+
+sub Date1Date2ToDaysDiff {
+ local ($yr1, $mo1, $md1, $yr2, $mo2, $md2) = @_; $z="$yr1$mo1$md1$yr2$mo2$md2";
+ local ($days)=$kWhen_400YearsDays * int(($yr1-$yr2)/400)
+               +&DateToYday($yr1,$mo1,$md1)
+               -&DateToYday($yr2,$mo2,$md2);
+
+ my $y=$yr2; my $end=$yr2+(($yr1-$yr2)%400);
+ while ($y<$end) {$days+=((($y%4==0 and $y%100!=0) or $y%400==0) ?366:365); $y++;}
+ return $days;
+}
+
+###
+#
+#  DateToYday (yr, mo, md) ==> the day of the year.
+#  Jan 01 is day 0 of the year, Dec 31 is day 364 (or possibly 365).
+#
+###
+
+sub DateToYday {
+ local ($yr,$mo,$md)=@_;  $z="$yr"; ## e.g. 1997,12,31
+ return -1 + $md + $kWhen_MonthDaySum[$mo-1]
+   +(($mo>2 and (($yr%4==0 and $yr%100!=0) or $yr%400==0)) ?1:0);
+}
+
+
+###
+#
+#  DateAdd (year, month, mday, add)  ==>  (year, month, mday)
+#
+###
+
+sub DateAdd {
+  local ($year, $month, $mday, $add)=@_;
+  local ($iday) = &DateToIday($year, $month, $mday);
+  local ($newyear, $newmonth, $newmday) = &IdayToDate($iday+$add);
+  return ($newyear, $newmonth, $newmday);
+}
+
+sub DatecodeAdd {
+  local ($datecode, $add)=@_;
+  local ($iday) = &DatecodeToIday($datecode);
+  local ($newdatecode) = &IdayToDatecode($iday+$add);
+  &trace("Datecode add: $datecode +($add)=$newdatecode");
+  return $newdatecode;
+}
+
+  
+
+######################  DATECODE  ################################
+
+
+###
+#
+#  Helpers for processing date-coded files, like this:
+#
+#    edupage.941031    (Halloween)
+#    edupage.950214    (Valentine's Day)
+#
+###
+
+## Pass in the year, month, and mday --> datecode
+## E.g. Datecode(94,5,4) --> 940504
+
+sub YMD2Datecode {
+  local ($yearNum, $monthNum, $mdayNum) = @_;
+  local ($datecode) = sprintf("%2.2d%2.2d%2.2d", $yearNum, $monthNum, $mdayNum);
+  $datecode;
+}
+
+## Pass in a datecode, and this splits it into year, month, and mday
+## E.g. Datecode2YMD(940504) --> (94,05,04)
+
+sub Datecode2YMD {
+  local ($datecode) = @_;
+  local ($yearNum, $monthNum, $mdayNum) = $datecode =~ /(\d\d)(\d\d)(\d\d)$/;
+}
+
+###
+#
+#  RecentWhencodes (datecode, daysAgo, @whencodeArray)
+#
+#  Goes through the @whencode array, and returns an array of only the
+#  entries that are newer than datecode - daysAgo. For example,
+#  if datecode is today, and daysAgo is 14, then you would get all
+#  the entries from whencodeArray that are newer than two weeks ago.
+#
+#  Entries in @whencodeArray must have the datecode at the beginning.
+#
+###
+
+sub RecentWhencodes {
+  local ($datecode, $daysAgo, @w) = @_;
+  local ($pastdatecode) = &DatecodeAdd($datecode, $daysAgo);
+
+  &trace("datecode= $datecode $daysAgo = $pastdatecode");
+
+  ## use 95.. instead of 1995.. for matching
+  if ($pastdatecode > 19000000) { $pastdatecode -= 19000000; } 
+ 
+  local ($i, @recentEnough);
+  foreach $i (@w) {
+    ($datecode) = $i =~ /^[\d]{0,2}(\d\d\d\d\d\d)[^d]/;
+    if ($datecode >= $pastdatecode) { push(@recentEnough,$i); }
+  }
+  return @recentEnough;
+}
+
+
+#######
+##
+##  Pretty printing
+##
+#######
+
+###
+#
+#  MdayToOrdinal (mday, wordflag)
+#
+#  Put in a number from 0-31, and get back the ordinal.
+#  If wordflag is true, then it will give you the ordinal in long word format.
+#  Yes, it's a kludge.
+#
+###
+
+sub MdayToOrdinal {
+ local ($mday, $wordflag) = @_;
+
+ @kOrd31 = (
+  '0th  zeroeth', '1st  first', '2nd  second', '3rd  third', '4th  fourth',
+  '5th  fifth', '6th  sixth','7th  seventh','8th  eighth','9th  ninth',
+  '10th tenth','11th eleventh','12th twelveth','13th thirteenth',  
+  '14th fourteenth','15th fifteenth','16th sixteenth','17th seventeenth',
+  '18th eighteenth','19th nineteenth','20th twentieth','21st twenty-first',
+  '22nd twenty-second','23rd twenty-third','24th twenty-fourth',
+  '25th twenty-fifth','26th twenty-sixth','27th twenty-seventh',
+  '28th twenty-eighth','29th twenty-ninth','30th thirtieth',
+  '31st thirty-first' );
+
+  if (($mday >= 0) || ($mday <= 31)) { $ordstring = $kOrd31[$mday]; }
+  if ($wordflag) { ($result) = $ordstring =~ / ([^ ]*)/;} # i.e. word 2
+            else { ($result) = $ordstring =~ /([^ ]*)/; } # i.e. word 1
+  $result;
+}
+
+
+###
+#
+#  General support functions
+#
+###
+
+sub Mod {
+  local ($number, $divisor)=@_;
+  return $number-(int($number/$divisor)*$divisor)
+}
+
+
+#############################################################
+##
+##                        DATES & TIMES
+##
+#############################################################
+
+
+## Returns the whencode of now (the current date & time),
+## like this:  199501020304
+
+sub WhencodeNow {
+  local ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
+  local ($when) = sprintf("%04d%02d%02d%02d%02d",$year,$mon+1,$mday,$hour,$min);
+  $sec=$isdst=$wday=$yday=0; #-w
+  $when;
+}
+
+
+## Returns just the date portion of the whencode:  19950102
+sub WhencodeToDatecode { substr($_[0],0,8);}
+
+## Returns just the time portion of the whencode:  0304
+sub WhencodeToTimecode { substr($_[0],8,4);}
+
+sub DatecodeNow { &WhencodeToDatecode(&WhencodeNow()); }
+sub TimecodeNow { &WhencodeToTimecode(&WhencodeNow()); }
+
+###
+#
+#  Concept: WhenKeys
+#
+#  This makes writing "when" tags a little easier, because it lets you
+#  write in normal English instead of writing in tags or HTML.
+#  You will send in a text template, and this returns the template
+#  with keywords replaced by tags. You will use the tags with other
+#  routines, to make substitutions of dates into the tags.
+#
+#  The keywords and formats are..
+#
+#   years:   1999, 99
+#   months:  01, 1, 1st, first, January, Jan
+#   mdays:   02, 2, 2nd, second
+#   hours:   03, 3, 3rd, third
+#   minutes: 04, 4, 4th, fourth
+#   days:    05, 5, 5th, fifth, Friday, Fri
+#
+#  Examples:
+# 
+#  $whencode="197010310759";  # 1970/10/31 07:59
+#  $whenkeys="I was born on Fri., January 2nd, '99 at 3:04";
+#  # ==> "I was born on <dayname3>., <monthname> <mdayOrd>, '<year2> at <hourD>:<minuteDD>"
+#  # ==> "I was born on Wed., October 31st, '70 at 7:59"
+#
+#  $whencode="197010310759";  # 1970/10/31 07:59
+#  $whenkeys="The 3rd hour of the second day of the 1st month of 1999";
+#  # ==> "The <hourOrd> hour of the <mdayOrdWords> day of the <monthOrd> month of <year4>""
+#  # ==> "The 7th hour of the thirty-first day of the 10th month of 1970"
+#
+###
+
+$kWhen_KeysMaxIndex = 25;
+
+@kWhen_Keys = ('1999','99',
+ '01','1','1st','first','January','Jan',
+ '02','2','2nd','second',
+ '03','3','3rd','third',
+ '04','4','4th','fourth',
+ '05','5','5th','fifth','Friday','Fri');
+
+
+@kWhen_Tags = ('year4', 'year2',
+ 'monthnumDD', 'monthnumD', 'monthOrd', 'monthOrdWords', 'monthname', 'monthname3',
+  'mdaynumDD',  'mdaynumD',  'mdayOrd',  'mdayOrdWords',
+  'hournumDD',  'hournumD',  'hourOrd',  'hourOrdWords',
+   'minnumDD',   'minnumD',   'minOrd',   'minOrdWords',
+   'daynumDD',   'daynumD',   'dayOrd',   'dayOrdWords',   'dayname',   'dayname3');
+
+
+
+sub WhenKeysGeneralSubstitution {
+
+  local ($t, $preTarget, $postTarget, $preMissle, $postMissle, @subs) = @_;
+  local ($i);
+  for $i (0..$kWhen_KeysMaxIndex) {
+    $t = s#$preTarget$kWhen_Keys[$i]$postTarget#$preMissle$subs[$i]$postMissle#gi;
+  }
+};
+
+sub WhenTagsGeneralSubstitution {
+
+  local ($t, $preTarget, $postTarget, $preMissle, $postMissle, @subs) = @_;
+  local ($i);
+  for $i (0..$kWhen_KeysMaxIndex) {
+    $t = s#$preTarget$kWhen_Tags[$i]$postTarget#$preMissle$subs[$i]$postMissle#gi;
+  }
+};
+
+sub WhenKeysToWhenTags {
+  return &WhenKeysGeneralSubstitution($_[0],"","","<when ",">",@kWhen_Tags); }
+
+sub WhenTagsToWhenKeys {
+  return &WhenTagsGeneralSubstitution($_[0],"<when ",">","","",@kWhen_Tags); }
+ 
+
+## Strip out everything that's not a digit
+sub StripNonDigits { local ($s) = s/[^\d]//gi; }
+
+
+## Digit formatting helpers
+sub DDtoD { local ($s) = sprintf("%d",$_[0]); }   ##  03 ==> 3
+sub DtoDD { local ($s) = sprintf("%02d",$_[0]); } ##   3 ==> 03
+
+
+sub SetWhenFormatArray {
+
+  local ($whencode,$year,$month,$mday,$hour,$minute,$day) = @_;
+  local (@wfa);
+  local ($year4, $year2,
+     $monthnumDD, $monthnumD, $monthOrd, $monthOrdWords, $monthname, $monthname3,
+     $mdaynumDD,  $mdaynumD,  $mdayOrd,  $mdayOrdWords,
+     $hournumDD,  $hournumD,  $hourOrd,  $hourOrdWords,
+     $minnumDD,   $minnumD,   $minOrd,   $minOrdWords,
+     $daynumDD,   $daynumD,   $dayOrd,   $dayOrdWords, $dayname, $dayname3);
+
+  if ($whencode) {
+    # if whencode is here, you can ignore the rest of the params,
+    # and set them directly from the whencode.
+    ($year,$month,$mday,$hour,$minute)=$w=~/(\d\d\d\d)(\d\d)(\d\d)(\d\d)(\d\d)/;
+  }
+
+  if ($year < 100) { $year+=1900; }
+  $year4 = $year;
+  $year2 = $year-1900;
+
+  if (!$day && $year && $month && $mday) { $day = &DateToDaynum($year,$month,$mday); }
+
+  if ($month >= 0) {
+    $monthnumD     = sprintf("%d",$month);
+    $monthnumDD    = sprintf("%02d",$month);
+    $monthOrd      = $kOrd31[$month];
+    $monthOrdWords = $kOrdWords31[$month];
+    $monthname3    = substr($monthname = &MonthnumToMonthname($month),0,3);
+  }
+
+  if ($mday >= 0) {
+    $mdaynumD      = sprintf("%d",$mday);
+    $mdaynumDD     = sprintf("%02d",$mday);
+    $mdayOrd       = $kOrd31[$mday];
+    $mdayOrdWords  = $kOrdWords31[$mday];
+  }
+
+  if ($hour >= 0) {
+    $hournumD      = sprintf("%d",$hour);
+    $hournumDD     = sprintf("%02d",$hour);
+    $hourOrd       = $kOrd31[$hour];
+    $hourOrdWords  = $kOrdWords31[$hour];
+  }
+
+  if ($minute >= 0) {
+    $minnumD       = sprintf("%d",$minute);
+    $minnumDD      = sprintf("%02d",$minute);
+    $minOrd        = $kOrd31[$minute];
+    $minOrdWords   = $kOrdWords31[$minute];
+  }
+
+  $daynumD       = sprintf("%d",$day);
+  $daynumDD      = sprintf("%02d",$day);
+  $dayOrd        = $kOrd31[$day];
+  $dayOrdWords   = $kOrdWords31[$day];
+
+  $dayname3      = substr($dayname = &DaynumToDayname($daynumD),0,3);
+ 
+  @wfa = ($year4, $year2,
+     $monthnumDD, $monthnumD, $monthOrd, $monthOrdWords, $monthname, $monthname3,
+     $mdaynumDD,  $mdaynumD,  $mdayOrd,  $mdayOrdWords,
+     $hournumDD,  $hournumD,  $hourOrd,  $hourOrdWords,
+     $minnumDD,   $minnumD,   $minOrd,   $minOrdWords,
+     $daynumDD,   $daynumD,   $dayOrd,   $dayOrdWords, $dayname, $dayname3);
+
+  &tracedone(); @wfa;
+}
+
+sub WhenFormatFromScratch {
+  local ($format,$whencode,$year,$month,$mday,$hour,$minute,$day) = @_;
+  local (@wfa) = &SetWhencodeFormatArray ($whencode,$year,$month,$mday,$hour,$minute,$day);
+  $format=&WhenTagsGeneralSubstitution($format,"","",@wfa);
+}
+
+sub WhenFormat {
+  local ($format,@wfa) = @_;
+  $format=&WhenTagsGeneralSubstitution($format,"","",@wfa);
+}
+
+###
+#
+#   To simplify things, you can use one of our typical formats.
+#   These are just convenient strings-- there's nothing special about
+#   them or about the fact that they're here.
+#
+#   In the enum arrays, D stands for Day, Y for year, and T for time.
+#
+###
+
+## Computerese
+$eWhen{'datecode'}   = '19990102';
+$eWhen{'whencode'}   = '199901020304'; 
+$eWhen{'whentext'}   = '1999/01/02 03:04';
+$eWhen{'timecode'}   = '0304'; 
+
+## Tight
+$eWhen{'slash'}      = '01/02'; 
+$eWhen{'slashY'}     = '1999/01/02'; 
+$eWhen{'slashYT'}    = '1999/01/02 03:04'; 
+
+## Abbreviated
+$eWhen{'abbr'}       = 'Jan. 2'; 
+$eWhen{'abbrD'}      = 'Fri, Jan. 2'; 
+$eWhen{'abbrDY'}     = 'Fri, Jan. 2 1999'; 
+$eWhen{'abbrDYT'}    = 'Fri, Jan. 2 1999, 03:04'; 
+$eWhen{'abbrDT'}     = 'Fri, Jan. 2, 03:04';
+
+## Pretty English
+$eWhen{'full'}       = 'January 2nd'; 
+$eWhen{'fullD'}      = 'Friday, January 2nd'; 
+$eWhen{'fullDY'}     = 'Friday, January 2nd, 1999'; 
+$eWhen{'fullDYT'}    = 'Friday, January 2nd, 1999 at 3:04'; 
+$eWhen{'fullDT'}     = 'Friday, January 2nd, at 3:04'; 
+
+
+###
+#
+#  Extract...
+#
+#  The enums are mnemonics for the Extract routines.
+#
+###
+
+ $eLengthShort
+=$eLengthCanon
+=$eLengthNoChange
+=$eLength3
+=$eLengthMax
+=0;#-w
+
+$eLengthShort    =   -2;  # Extract the substring, then clip to make short
+$eLengthCanon    =   -1;  # Extract the substring, then make canonical (usually long)
+$eLengthNoChange =    0;  # Extract the substring as it appears
+$eLength3        =    3;  # Clip to 3 characters (for months, days, etc.)
+$eLengthMax      =99999;  # Essentially, don't clip: clip to 99,999 characters.
+
+
+sub ExtractDatecode {
+  local ($sep)= "/-"; # separator
+  local ($found) = $_[0] =~ m#[^\d]([\d\d]9\d[$sep]{0,1}[01]\d[$sep]{0,1}[0123]\d)[^\d]#;
+  $found; 
+}
+
+sub ExtractMonthnumMday {
+  local ($s) = @_;
+  local ($sep)= '/-'; # separator
+  local ($found);
+
+  local ($month,$mday) = $_[0] =~ m#[^\d]([01]\d)[$sep]{0,1}([0123]\d)[^\d]#;
+  if ($month) { return ($month, $mday); }
+
+  ## Look for a complete name; if not found, then look for a abbreviated name.
+               ($month,$found)= 1+&TextToArrayIndex($s,'','',$eLengthMax,$kWhen_MonthNames[$i]);
+  if (!$month){($month,$found)= 1+&TextToArrayIndex($s,'','',$eLength3,  $kWhen_MonthNames[$i]);}
+  if (!$month) { return (0,0); }  # fail
+
+  ## Now that we know the month's text, can we find the mday immediately after the month? 
+  ($mday) = $s =~ m#$found[\.,]{0,1} {0,2}(\d{1,2})#;
+  if (!$mday)  { return (0,0); }  # fail
+  return ($month, $mday);
+}
+
+sub ExtractMonthnum {
+  local ($s) = @_;
+  ## Look for a complete name; if not found, then look for a abbreviated name.
+  local      ($num,$z)= 1+&TextToArrayIndex($s,'','',$eLengthMax,$kWhen_MonthNames[$i]);
+  if (!$num){($num,$z)= 1+&TextToArrayIndex($s,'','',$eLength3,  $kWhen_MonthNames[$i]);}
+  $num;
+}
+
+sub ExtractDaynum {
+  local ($s) = @_;
+  ## Look for a complete name; if not found, then look for a abbreviated name.
+  local      ($num,$z)= 1+&TextToArrayIndex($s,'','',$eLengthMax,$kWhen_DayNames[$i]);
+  if (!$num){($num,$z)= 1+&TextToArrayIndex($s,'','',$eLength3,  $kWhen_DayNames[$i]);}
+  $num;
+}
+
+
+##
+#
+# WhentextNormalize
+#
+# Converts whentext (as generated by a mailer program)
+# into a more regular and sortable format.
+#
+# Input: a string, in any date formats from email headers:
+#
+#  Wombat email   = Mon, 2 May 95 23:59:59 PST
+#  VO email       = Mon, 2 May 1995 23:24:58 -0400
+#  Colossus email = Thu, 31 Aug 95 18:12 PDT
+#  Colossus shell = Wed Nov  1 12:37:26 PST 1995
+#
+# Output is a good whentext:
+#
+#  1995/05/02 23:59:59 PST
+#
+##
+
+sub WhentextNormalize {
+  local ($datetext)=@_;
+  local ($wdayName,$mday,$mo,$year,$timestamp)
+    =$datetext
+    =~m#(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w*,? +([012]?\d) +(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w* +(\d\d+) +([012]\d:\d\d:?\d?\d? ?P?S?T?)#;
+  if ((!defined $year)||(!defined $mo)||(!defined $timestamp)) {
+    ($wdayName,$mo,$mday,$timestamp,$year)
+    =$datetext
+    =~m#(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w*,? +(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w* +([012]?\d) +([012]?\d:\d\d:?\d?\d? ?P?S?T?) +(\d\d+)#;
+     print "mady=$mday mo=$mo timestampe=$timestamp year=$year\n";
+  }
+  if ((!defined $year)||(!defined $mo)||(!defined $timestamp)) {
+    print "## Date error in \$datetext: $datetext\n"
+         ."##  year=$year mo=$mo mday=$mday\n";
+    $year=$mo=$timestamp='';
+  }
+  if ($year<1900) { $year+=1900; }
+  return sprintf("%4.4d/%2.2d/%2.2d %s",$year,&MonthnameToMonthnum($mo),$mday, $timestamp);
+}
+
+
+sub Timestamp {
+ my ($s,$m,$h,$md,$mo,$yr,$wd,$yd,$isdst)=gmtime(time); $wd=$yd=$isdst='';
+ return sprintf("%4.4d/%2.2d/%2.2d %2.2d:%2.2d:%2.2d",(($yr<90)?$yr+2000:$yr),$mo+1,$md,$h,$m,$s);
+}
+
+1 # must end in 1

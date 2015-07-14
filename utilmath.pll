@@ -1,0 +1,140 @@
+#!/usr/local/bin/perl -wT
+$ini{'^load'}.=$;.__FILE__.' '.<<'END'
+#############################################################################
+
+ utilmath.pll 0.9b 19941116-19971007 joel@school.net
+
+ DO NOT EDIT THIS!
+
+ This is a copy of the master version, and will be overwritten.
+ The master version is on jade.school.net in /www/cgi/util/joel/
+
+ Copyright (c) 1994-1997 Joel Parker Henderson joel@school.net 800-558-2197
+ This source code is private. Do not distribute without written permission.
+
+ UtilMath.pll is a perl library, and does not do anything on its own.
+ It offers utilities for handling math functions, statistics, etc.
+
+#############################################################################
+END
+;
+
+sub ArrExciseNonNumbers {
+  local (@i)=@_;
+  local($i);
+  foreach $i (@i) { $i=~s/[^\d\s]//g; }
+  return grep(!/\d/,@i);
+}
+
+
+##
+# &StatsReport ($s, $precisionWidth, @n)
+#
+# An easy way to provide basic statistics on an array of numbers.
+# 
+#   $s   a formatting string, a little like perl's print.
+#        Within the formatting string, the following substitutions will occur:
+#
+#          $count        = how many numbers, i.e. array elements?
+#          $sum          = total of all the numbers
+#
+#          $mean         = the average 
+#          $median       = middle number in the sorted list of numbers
+#          $mode         = number with the most tallies
+#          $moden        = how many (thus the "n") tallies does the mode have?
+#
+#          $sd           = standard deviation
+#           
+#          $min          = the smallest number
+#          $max          = the largest number
+#          $mini         = the index of the smallest number
+#          $maxi         = the index of the largest number
+#
+#   $precisionWidth      The average (mean) and standard deviation will be long.
+#                        The $precisionWidth specifies how many decimal places
+#                        you want in the printout of $mean and $sd.
+#
+#   @n                   the array of numbers
+#
+##
+
+sub StatsReport {
+  local ($s, $precisionWidth,@n)=@_;
+  if (!$s) { return join(' ',&Stats(@n)); }
+
+  local (%s)=&Stats(@n);
+  local ($precision)='%'.$precisionWidth.'.'.$precisionWidth.'f';
+
+  $s{'mean'} =sprintf($precision,$s{'mean'});
+  $s{'sd'} =sprintf($precision,$s{'sd'});
+   
+  foreach $k (split(/ +/,'count sum mean median moden mode sd mini maxi min max q1 q2 q3 iqr')) {
+    $s=~s/\$$k/$s{$k}/g;
+  }
+  return $s;
+}    
+
+sub Stats {
+  local (@n)=@_;
+  local ($sum,$mean,$min,$max,$minIndex,$maxIndex,$n,$i);
+  $min=$max=$n[$minIndex=$maxIndex=0];
+  $sum=0;
+  for $i (0..$#n) {
+    $sum+=$n[$i];
+    if ($n[$i]<$min) { $min=$n[$minIndex=$i]; }
+    if ($n[$i]>$max) { $max=$n[$maxIndex=$i]; }
+  }    
+  $s{'min'}=$min; $s{'mini'}=$minIndex;
+  $s{'max'}=$max; $s{'maxi'}=$maxIndex;
+  $s{'mean'} = $mean = ($s{'sum'}=$sum) / ($s{'count'}=1+$#n);
+  
+  { # mode
+    local (%tally,$mode,$moden);
+    for $i (0..$#n) {
+      if (!defined $tally{$n[$i]}) { $tally{$n[$i]}=0; } $tally{$n[$i]}++;
+    }
+    $moden=-1;
+    undef $mode;
+    foreach $i (keys %tally) {
+      #print STDERR "i=$i tally=$tally{$i}\n";
+      if ($tally{$i} > $moden) { $moden=$tally{$mode=$i}; }
+    }    
+    $s{'moden'}=$moden;
+    $s{'mode'}=$mode;
+  }
+  
+  { # standard deviation
+    local ($sumsquares)=0;
+    foreach $n (@n) { $sumsquares.=($n-$mean)*($n-$mean); }
+    $s{'sd'} = sqrt($sumsquares)/$#n; 
+  }  
+
+  { # median
+
+    @n=sort(@n);
+    $s{'median'}=&Median(@n);
+    local ($m)=$#n/2;
+    local (@low,@high);  # second and third quartiles
+    if ($m==int($m)) {
+      @low  = @n[0..$m];
+      @high = @n[$m..$#n];
+    } else {
+      @low  = $n[0..int($m)];
+      @high = $n[int($m)+1..$#n];
+    }
+    $s{'q1'}=&Median(@low);
+    $s{'q3'}=&Median(@high);
+    $s{'iqr'}=$s{'q3'}-$s{'q1'};
+  }
+
+  return %s;
+}
+
+sub Median {
+  local (@n)=sort @_;
+  local ($m)=$#n/2;
+  return ($m==int($m))
+    ? $n[$m]
+    : ($n[int($m)]+$n[int($m)+1])/2;
+}
+1

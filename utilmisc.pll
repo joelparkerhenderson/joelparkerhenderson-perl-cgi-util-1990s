@@ -1,0 +1,431 @@
+#!/usr/local/bin/perl -wT
+$ini{'^load'}.=$;.__FILE__.' '.<<'END'
+#############################################################################
+
+ utilmisc.pll 0.9b 19940217-19971007 joel@school.net
+
+ DO NOT EDIT THIS!
+
+ This is a copy of the master version, and will be overwritten.
+ The master version is on jade.school.net in /www/cgi/util/joel/
+
+ Copyright (c) 1994-1997 Joel Parker Henderson joel@school.net 800-558-2197
+ This source code is private. Do not distribute without written permission.
+
+ utilmisc.pll is a perl library, and does not do anything on its own.
+ It has utilities for handling strings, numbers, and miscellaneous stuff.
+
+#############################################################################
+END
+;
+
+$true=1; $false=0;
+$true=1; $false=0;
+
+%Tokenize_OperToArgs=
+%Tokenize_OperToEval=
+%Tokenize_SymbolToOper=
+();
+
+#############################################################
+##
+##    TOKENIZE - Used primarily by ZipSiteFind
+##
+#############################################################
+    
+&Tokenize_Init;
+
+###### +TOKENIZE  #########################################################
+
+## for debugging
+sub Tokenize_Msg { 
+ if ($inSwitch{'trace'}) {
+  print "\n<li>";
+  print (' ' x $depth); 
+  print $_[0]."\n"; 
+ }
+} 
+
+sub Tokenize_Init {
+
+ local(@load)=(
+
+  ## unary
+  'flp', 1, '', '-(a)',
+  'abs', 1, '', 'abs(a)',
+  'one', 1, '', '(a>1)?1:((a<-1)?-1:a)',
+  'boo', 1, '', '(a)?1:0',
+  'pos', 1, '', '(a>0)?a:0',
+  'neg', 1, '', '(a<0)?a:0', 
+
+  ## boolean logic
+  'equ', 2, '=', '(a==b)?a:0',
+  'not', 2, '~', 'b?0:a',
+  'and', 2, '&', '(a and b)?(a+b):0',
+  'ior', 2, '|', '(a or b)?(a+b):0',
+  'xor', 2, 'x', '(a xor b)?(a+b):0',
+
+  ## boolean math
+  'add', 2, '+', 'a+b',
+  'sub', 2, '-', 'a-b',
+  'mul', 2, '*', 'a*b',
+  'div', 2, '/', 'a/b',
+  'max', 2, '' , '(a>b)?a:b',
+  'min', 2, '' , '(a<b)?a:b',
+  'avg', 2, '' , '(a+b)/2',
+ );
+
+ while (@load) {
+  ($oper,$args,$symbol,$eval)=splice(@load,0,4);
+  $Tokenize_OperToArgs{$oper}=$args;
+  $Tokenize_OperToEval{$oper}=$eval;
+  if ($symbol ne '') { $Tokenize_SymbolToOper{$symbol}=$oper;}
+ }
+}
+
+sub Tokenize_OperToEval {
+ local($oper,$a,$b,$c)=@_;
+ #&Tokenize_Msg("xeturn oper=$_[0] a=$_[1] b=$_[2] c=$_[3] operToEval=$Tokenize_OperToEval{$oper}");
+ local($eval)=$Tokenize_OperToEval{$oper};
+ $eval=~s/\b(a|b|c)\b/\t$1\t/g;
+ $eval=~s/\ta\t/$a/g;
+ $eval=~s/\tb\t/$b/g;
+ $eval=~s/\tc\t/$c/g;
+ #&Tokenize_Msg("return a=$a b=$b c=$ eval=$eval");
+ return " ($eval) ";
+}
+
+sub Tokenize_RecurParse {
+ local ($depth,$t)=@_;
+ #&Tokenize_Msg("+RecurOp depth=$depth t=\"$t\"");
+ $depth++;
+ local ($c,$pos,$build,@expr,$oper);
+ $t=~s/^\s+//; $t=~s/\s+$//;
+ $c=''; $pos=0; $build=''; $oper=''; @expr=();
+
+ while ($c=substr($t,$pos++,1) and ($c ne ')')) {
+  #&Tokenize_Msg("c=$c");
+  if ($c=~m#[\w\.]#)    {$build.=$c;}
+  if ($c=~/[\ \:\$\#]/) {&Tokenize_Expr($build); $build=$c;} #  :oper $var #num
+  if ($c eq '(')        {&Tokenize_Expr($build); $build='';
+   ($build,$t)=&Tokenize_RecurParse($depth,substr($t,$pos,length($t)));
+   #&Tokenize_Expr($build); $build='';
+  }
+ }
+ &Tokenize_Expr($build); $build='';
+ $depth--; 
+ #&Tokenize_Msg("-RecurOp: $expr[0]");
+ return ($#expr>=0)?$expr[0]:'',($pos<length($t))?substr($t,$pos,length($t)):'';
+}
+
+
+sub Tokenize_Expr {
+ local ($expr)=@_;
+ my $temp='';
+ #&Tokenize_Msg("Tokenize_Expr $expr");
+ $expr=~s/^\s+//;
+ $expr=~s/\s$//;
+ if ($expr) {
+  if ($expr=~/^\:(.*)/) {
+   $oper=$1;
+   #&Tokenize_Msg(":Expr oper=$oper");
+  } else {
+   $expr=~s/^\#//; #scalar
+   #&Tokenize_Msg(":Expr push (".join(", ",@expr)."), $expr");
+   push(@expr,$expr); $build='';
+   if (($#expr==1) and (!$oper)) { $oper='add'; }
+   #&Tokenize_Msg("$#expr =? #$oper needs $Tokenize_OperToArgs{$oper}");
+   if ($oper) {
+    if ($Tokenize_OperToArgs{$oper}==($#expr+1)) {
+     @expr=$temp=&Tokenize_OperToEval($oper,@expr);
+    }
+    #&Tokenize_Msg(":Expr oper result=$temp");
+   }
+  }
+ }
+}
+
+
+#############################################################
+##
+##                     MATH
+##
+#############################################################
+    
+## Find the minimum and maximum of an associative array
+
+sub AssociationMinMaxKeys {
+
+  local (%association) = @_;
+  local ($key,@keys);
+  @keys = sort(keys(%association));
+  local ($minkey) = $keys[0];
+  local ($maxkey) = $keys[0];
+
+  foreach $key (@keys) {
+    if ($association{$key} < $association{$minkey}) { $minkey = $key; }
+    if ($association{$key} > $association{$maxkey}) { $maxkey = $key; }
+  }
+  return ($minkey, $maxkey);
+}
+
+
+sub AssociationMinMax {
+  local (%association) = @_;
+  local ($key,@keys);
+  @keys = sort(keys(%association));
+  local ($min) = $association{$keys[0]};
+  local ($max) = $association{$keys[0]};
+  
+  foreach $key (@keys) {
+    if ($association{$key} < $min) { $min = $association{$key}; }
+    if ($association{$key} > $max) { $max = $association{$key}; }
+  }
+  return ($min, $max);
+}
+
+
+
+#############################################################
+##
+##                     CHARACTERS
+##
+#############################################################
+
+# DeTabAssoc is used a lot for TDF files, especially in CGI scripts
+
+sub DeTabAssoc {
+  local (%a) = @_;
+  local ($k);
+  foreach $k (keys %a) { $a{$k}=~s/\t//g; }
+  %a;
+}
+
+sub Strip {
+    
+    local ($text, $leading, $trailing, $leadOrTrail, $anywhere) = @_;
+
+    $leading  .= $leadOrTrail;
+    $trailing .= $leadOrTrail;
+
+    if ($anywhere)  {$text =~ s/[$anywhere]//g;}
+    if ($leading)   {$text =~ s/^[$leading]+//g;}
+    if ($trailing)  {$text =~ s/[$leading]+$//g;}
+    $text;
+}
+
+sub StripWrappingWhitespace {
+    local ($text) = @_;
+    $text = &Strip ($text, "", "", " \t", "");
+}
+
+###     
+#  
+#  WordCaps
+#  
+#  This capitalizes the first letter in every word in a string,
+#  where a word is defined as anything following comma, colon, 
+#  semicolon, period, space, underscore, or equals, or at the  
+#  start of the string.
+#  
+#  print &WordCaps("this is cool. apple,banana. good.");
+#  ==> "This Is Cool. Apple,Banana,Carrot. Good.";
+#  
+#  You can specify an optional string of characters to translate into
+#  space characters. For example, you can specify that you want all  
+#  underscores to become spaces. We do this because we're often word 
+#  capping variable names, which use underscores instead of spaces.  
+#  
+#  print &WordCaps("my_var, your_var, some_other_var", "_");
+#  ==> "My Var, Your Var, Some Other Var"
+#  
+#  print &WordCaps("hi-there//how-are-you/I-am-fine", "-/")
+#  ==> "Hi There  How are you  I am fine"
+#  
+#  There is an optional $separateBicapsFlag that helps us translate
+#  variable names like "myVeryLongString" into "My Very Long String"
+#  
+#
+###
+   
+sub WordCaps {
+  local($s,$translateCharsToSpace,$separateBicapsFlag) = @_;
+  local($z,$c);
+  while (($z,$c)=$s=~/(^|[_ ,\.=])([a-z])/) {
+    $c =~ tr/a-z/A-Z/;
+    $s=~s#(^|[_ ,\.=])[a-z]#$1$c#;
+  }
+  if ($translateCharsToSpace) {$s=~s/[$translateCharsToSpace]/ /g;}
+  if ($separateBicapsFlag) { $s=~s/([a-z])([A-Z])/$1 $2/g; }
+  $s;
+}
+
+
+###
+#  
+#  PrettyKeys
+#  
+#  Pass in an associative array, and this will return an array
+#  of the keys in pretty format: underscores are changed into 
+#  spaces, and words are word-capitalized.
+#  
+#  E.g.
+#  
+#    %a = ("my_key", "xxx", "your_key", "yyy", "some_other_key", "zzz");
+#    print join("; ", &PrettyKeys(%a));
+#  
+#    ==>  My Key; Your Key; Some Other Key;
+#  
+###
+   
+sub PrettyKeys {
+  local (%a) = %_;
+  local ($a,@a,$k);   
+  for $k (keys %a) {
+    $a=&WordCap($a{$k},"_",$true);
+    $a=~s#_# #g;
+  }
+  push (@a,$a);
+  @a;
+}
+ 
+
+###
+#
+#  TextToArrayIndexTool (string, missle, preArr, postArr, truncateLength, targetArray)
+#
+#  Looks for any array entry from @targetArray in a text string.
+#  If any entries are found, returns the index of the array entry and some text (see below).
+#  If there is a missle string, the found text is replaced with the missle string;
+#  if there is no missle, the the text string is unmodified.
+#
+#  The full return is: the index, the found text, and the text string.
+#  The full return is in an array context.
+#
+#  Otherwise returns -1 (-1 means that none of the array entries were in the string),
+#  and an empty string.
+#
+#  preArr is a regex that is prepended to the target. If you use preArr *and* you
+#  need the found text, then you *must* be sure to put the "(" grep matching paranthesis;
+#  if you don't, this script will return the correct entry index but empty found text.
+#  (The script automatically provides the parenthesis for you if you don't use preArr.)
+#  The postArr variable is the append-to-target equivalent of preArr.
+#
+#  In the case of multiple found entries, returns the highest index.
+#  In the case of multiple string matches for the entry, returns the first (ie. usual grep).
+#  The search is only on the first $truncateLength characters.
+#
+#  E.g.
+#
+#    @arr=('mind','think','brain');
+#    $s="He reminds you to take this thin blue broken jar.";
+#    &TextToArrayIndex($s,"",'',    ''    ,1, @arr)    ==>  ( 2, "b"      ,$s)
+#    &TextToArrayIndex($s,"",'',    '\w*)',1, @arr)    ==>  ( 2, "blue"   ,$s)
+#    &TextToArrayIndex($s,"",'',    '\w*)',2, @arr)    ==>  ( 2, "broken" ,$s)
+#    &TextToArrayIndex($s,"",'',    '\w*)',3, @arr)    ==>  ( 1, "this"   ,$s)
+#    &TextToArrayIndex($s,"",'',    '\w*)',4, @arr)    ==>  ( 1, "thin"   ,$s)
+#    &TextToArrayIndex($s,"",'',    '\w*)',5, @arr)    ==>  ( 0, "minds"  ,$s)
+#    &TextToArrayIndex($s,"",'',    ''    ,5, @arr)    ==>  ( 0, "mind"   ,$s)
+#    &TextToArrayIndex($s,"",'(\w*','\w*)',5, @arr)    ==>  ( 0, "reminds",$s)
+#    &TextToArrayIndex($s,"tells",'(\w*','\w*)',5, @arr)
+#       ==>  ( 0, "reminds","He tells you to take this thin blue broken jar")
+#
+###
+
+sub TextToArrayIndexTool {
+  local ($s, $missle, $preArr, $postArr, $truncateLength, @targetArray) = @_;
+  local ($index, $target, $found);
+  if (!$preArr)  { $preArr ='('; }
+  if (!$postArr) { $postArr=')'; }
+
+  $index=$#targetArray;
+  while (($index>=0) && !$found) {
+    $target = $preArr.substr($targetArray[$index],0,$truncateLength).$postArr;
+    eval("($found)=$s=~m#".$target."#i;");
+    $index--;
+  }
+  if ($found && $missle) { eval ("$s=~s#".$target."#".$missle."#gi;"); }
+  return ($i,$found,$s); #  n.b. $i==-1 if not found
+}
+
+
+sub Delimit {
+ local ($target,$grepFlag) = @_;
+ if (!$grepFlag) {
+  $target =~ s/\./\\./g;
+  $target = ".*".$target;  # prepend match anything
+ }
+ $target;
+}
+
+###
+#
+#  ArrayPrepend & ArrAppend simply prepend (or append) some text to an array.
+#
+###
+
+
+sub ArrPrepend {
+  local ($text,@arr)=@_;
+  local ($i);
+  for $i (0..$#arr) { $arr[$i]=$text.$arr[$i]; }
+  @arr;
+}
+ 
+sub ArrAppend {
+  local ($text,@arr)=@_;
+  local ($i);
+  for $i (0..$#arr) { $arr[$i].=$text; }
+  @arr;
+
+}
+
+###
+#
+#  ArrReplace
+#
+###
+
+ 
+sub ArrReplace {
+  local ($target, $missle, $globalFlag, @arr)=@_;
+  local ($i);
+  if ($globalFlag) {
+    for $i (0..$#arr) { $arr[$i]=~s#$target#$missle#g; }
+  } else {
+    for $i (0..$#arr) { $arr[$i]=~s#$target#$missle#;  }
+  }
+  @arr;  
+}
+
+#############################################################
+##
+##                     SORT
+##
+#############################################################
+
+
+sub SortLibrary {
+  $a2=$a; $b2=$b;
+  $a2=~s/^(\t| |a|an|the)\s+//gi;
+  $b2=~s/^(\t| |a|an|the)\s+//gi;
+  return ($a2 cmp $b2);
+}
+
+sub SortLinkLibrary {
+  $a2=$a; $b2=$b;
+  $a2=~s/^.*<(=|a )[^>]+>((\t| |a|an|the)\s+)*\s*//gi;
+  $b2=~s/^.*<(=|a )[^>]+>((\t| |a|an|the)\s+)*\s*//gi;
+  return ($a2 cmp $b2);
+}
+
+sub SortLink {
+  $a2=$a; $b2=$b;
+  $a2=~s/^.*<(=|a )[^>]+>\s*//gi;
+  $b2=~s/^.*<(=|a )[^>]+>\s*//gi;
+  return ($a2 cmp $b2);
+}
+
+
+1 # must end with 1
+

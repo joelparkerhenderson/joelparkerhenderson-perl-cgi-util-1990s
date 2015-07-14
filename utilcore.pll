@@ -1,0 +1,831 @@
+#!/usr/local/bin/perl -wT
+$ini{'^load'}.=$;.__FILE__.' '.<<'END'
+#############################################################################
+
+ utilcore.pll 1.2a 19960105-19971007 joel@school.net
+
+ DO NOT EDIT THIS! 
+
+ This is a copy of the master version, and will be overwritten.
+ The master version is on jade.school.net in /www/cgi/util/joel/
+
+ Copyright (c) 1994-1997 Joel Parker Henderson joel@school.net 800-558-2197
+ This source code is private. Do not distribute without written permission.
+
+ utilcore.pll is a perl library, and does not do anything on its own.
+ It offers lots of utilities to support the web, security, html markup,
+ file reads and writes, cgi scripting, email gateways, and cgi-simulated
+ sessions by passing form ids. UtilCore is used by almost all my programs.
+
+#############################################################################
+END
+;
+
+$true=1; $false=0;
+
+($kErrNone,$kErrWarn,$kErrDie)=(0..2);
+($kErrNone,$kErrWarn,$kErrDie)=(0..2);
+
+%inx=%inp=%ins=();
+$z=0; $z=($true or $false or @kCharLettel_16); #-w
+
+
+#################  SECURITY  ################################################
+
+
+###
+#
+#  Xtract -- extracts and detaints.
+#  These will be helpful if you use perl -T
+#  See "man perlsec" and search for "taintperl"
+#
+# "Xtract All from Anywhere into Array" Xa gets all items, returns an array. 
+# "Xtract one from Somewhere in string" Xs gets one item, returns a string.
+# "Xtract one from Entire string match" Xe gets one item, returns a string.
+#
+#  Detaint a filename:     $fileClean =&XeFile  ($fileDirty);
+#  Capture many emails:    @email     =&XaEmail ($lotsOfDirtyText);
+#  Get the first word:     $word      =&XsWord  ($lotsOfDirtyText);
+#
+#  Gotcha: passwords cannot contain & < > for HTML compatibility.
+#
+###
+
+sub XaWord     {while(defined $_[0] and $_[0]=~m/(\w{1,64})/                     ){push(@_,$1);$_[0]=$';}shift @_;@_;}
+sub XsWord     {     (defined $_[0] and $_[0]=~m/(\w{1,64})/                     )?$1:undef;}
+sub XeWord     {     (defined $_[0] and $_[0]=~/^(\w{1,64})$/                    )?$1:undef;}
+sub XaFile     {while(defined $_[0] and $_[0]=~m/([\w\.\-\:\/\\]{1,254})/        ){push(@_,$1);$_[0]=$';}shift @_;@_;}
+sub XsFile     {     (defined $_[0] and $_[0]=~m/([\w\.\-\:\/\\]{1,254})/        )?$1:undef;}
+sub XeFile     {     (defined $_[0] and $_[0]=~/^([\w\.\-\:\/\\]{1,254})$/       )?$1:undef;}
+sub XaEmail    {while(defined $_[0] and $_[0]=~m/([-\w\.]+\@[-\w\.]+\.\w{2,3})/  ){push(@_,$1);$_[0]=$';}shift @_;@_;}
+sub XsEmail    {     (defined $_[0] and $_[0]=~m/([-\w\.]+\@[-\w\.]+\.\w{2,3})/  )?$1:undef;}
+sub XeEmail    {     (defined $_[0] and $_[0]=~/^([-\w\.]+\@[-\w\.]+\.\w{2,3})$/ )?$1:undef;}
+sub XaEmailEnd {while(defined $_[0] and $_[0]=~m/([-\w\.]*\@?[-\w\.]+\.\w{2,3})/  ){push(@_,$1);$_[0]=$';}shift @_;@_;}
+sub XsEmailEnd {     (defined $_[0] and $_[0]=~m/([-\w\.]*\@?[-\w\.]+\.\w{2,3})/  )?$1:undef;}
+sub XeEmailEnd {     (defined $_[0] and $_[0]=~/^([-\w\.]*\@?[-\w\.]+\.\w{2,3})$/ )?$1:undef;}
+sub XaAtHost   {while(defined $_[0] and $_[0]=~m/(\@[-\w\.]+\.\w{2,3})/  ){push(@_,$1);$_[0]=$';}shift @_;@_;}
+sub XsAtHost   {     (defined $_[0] and $_[0]=~m/(\@[-\w\.]+\.\w{2,3})/  )?$1:undef;}
+sub XeAtHost   {     (defined $_[0] and $_[0]=~/^(\@[-\w\.]+\.\w{2,3})$/ )?$1:undef;}
+sub XaHost     {while(defined $_[0] and $_[0]=~m/([-\w\.]+\.\w{2,3})/  ){push(@_,$1);$_[0]=$';}shift @_;@_;}
+sub XsHost     {     (defined $_[0] and $_[0]=~m/([-\w\.]+\.\w{2,3})/  )?$1:undef;}
+sub XeHost     {     (defined $_[0] and $_[0]=~/^([-\w\.]+\.\w{2,3})$/ )?$1:undef;}
+sub XaUser     {while(defined $_[0] and $_[0]=~m/([\w\.\-\@]{1,64})?/            ){push(@_,$1);$_[0]=$';}shift @_;@_;}
+sub XsUser     {     (defined $_[0] and $_[0]=~m/([\w\.\-\@]{1,64})?/            )?$1:undef;}
+sub XeUser     {     (defined $_[0] and $_[0]=~/^([\w\.\-\@]{1,64})?$/           )?$1:undef;}
+sub XaPass     {while(defined $_[0] and $_[0]=~m/([\w\`\~\!\@\#\$\%\^\*\(\)\;|:\'\"\?\/\,\.\[\]\{\}]{6,64})?/i){push(@_,$1);$_[0]=$';}shift @_;@_;}
+sub XsPass     {     (defined $_[0] and $_[0]=~m/([\w\`\~\!\@\#\$\%\^\*\(\)\;|:\'\"\?\/\,\.\[\]\{\}]{6,64})?/)?$1:undef;}
+sub XePass     {     (defined $_[0] and $_[0]=~/^([\w\`\~\!\@\#\$\%\^\*\(\)\;|:\'\"\?\/\,\.\[\]\{\}]{6,64})?$/)?$1:undef;}
+
+##################  EXTERNAL CALLS  ######################################
+
+###
+#
+#  DoSystemCommands -- provide a safer way to make external system calls
+#
+#  $verboseFlag : print the system call to STDOUT before you do it?
+#  $promptFlag  : prompt the user to confirm that he wants to do it?
+#  @cmd         : list of system commands to do.
+#
+#  When you create your commands, you will get better security and
+#  portability if you use the initialization array $ini{'*foobar'}
+#  whenever possible. For example, to "cat" a file into another:
+#
+#    &DoSystemCommands
+#    (1,1,$ini{'*cat'}.' '.$file1.' > '.$file2);
+#
+#  To further improve security, be sure to detaint your variables:
+#
+#    &DoSystemCommands
+#    (1,1,$ini{'*cat'}.' '.&XeFile($file1).' > '.&XeFile($file2));
+#
+###
+
+sub DoSystemCommands {
+ local($verboseFlag,$promptFlag,@cmds)=@_;
+ local ($yn)='y';
+ foreach $cmds (@cmds) {push(@cmd,split(/\n/,$cmds));}
+ for $cmd (@cmd) {
+  if ($verboseFlag) { print STDERR "y/n?===> $cmd "; }
+  if ($promptFlag)  { $yn=<>; }
+  if ((defined $yn) and ($yn=~/^y/i)) { system $cmd; }
+ }
+}
+
+
+####################  FILES  ################################################
+
+
+($kErrDBFileNotOpenReadWriteCreate,
+ $kErrDBFileNotOpenReadWrite,
+ $kErrDBFileNotOpenRead,
+)=''; #-w
+
+($kErrDBFileNotOpenReadWriteCreate,
+ $kErrDBFileNotOpenReadWrite,
+ $kErrDBFileNotOpenRead,
+)=(100..199);
+
+($kFileTest_Xe,
+ $kFileTest_Defined,
+ $kFileTest_OpenRead,
+ $kFileTest_RealRead,
+ $kFileTest_OpenWrite,
+ $kFileTest_RealWrite,
+ $kFileTest_Close,
+ $kFileTest_Die,
+)=(1..9); # must be single digits to work with &FileTest
+$z=$kFileTest_Die; #-w
+
+## The file test numbers are mine, the letters are standard Perl.
+
+%kFileTest = (
+ $kFileTest_Xe        ,"Filename is secure\tYour filename is not secure. Your filename cannot contain any odd characters, spaces, or symbols.",
+ $kFileTest_Defined   ,"Filename is defined\tYour filename is undefined. Your filename has a typo, or is blank, or has a strange character in it.",
+ $kFileTest_OpenRead  ,"File OpenRead\tYour file cannot be opened for reading.",
+ $kFileTest_RealRead  ,"File RealRead\tYour file cannot be read. It is probably empty. You need to put something in it.",
+ $kFileTest_OpenWrite ,"File OpenWrite\tYour file cannot be opened for writing.",
+ $kFileTest_RealWrite ,"File RealWrite\tWriting to your file fails.",
+ $kFileTest_Close     ,"File Close\tYour file cannot be closed. Check for permissions problems or more than one user editing the same file at the same time.",
+ 'r',"File is readable by effective uid/gid\tYour file is not readable. You probably need to fix the file permissions. (Unix: chmod u+r myfile) (Windows: File Explorer, right click the file, choose Properties)",
+ 'w',"File is writable by effective uid/gid\tYour file is not writable. You probably need to fix the file permissions. (Unix: chmod u+w myfile) (Windows: File Explorer, right click the file, choose Properties)",
+ 'x',"File is executable by effective uid/gid\tYour file is not executable. You probably need to fix the permissions. (Unix: chmod u+x myfile) (Windows: unknown)",
+ 'o',"File is owned by effective uid",
+ 'R',"File is readable by real uid/gid",
+ 'W',"File is writable by real uid/gid",
+ 'X',"File is executable by real uid/gid",
+ 'O',"File is owned by real uid",
+ 'e',"File exists.\tYour file does not exist. You may have a typo in your file name, or you need to create the file. (Unix: touch myfile) (Windows: create a blank text file and save it)",
+ 'z',"File has zero size\tYour file is empty. You need to have something in it. (Unix: pico myfile) (Unix: emacs myfile) (Unix: vi myfile) (Windows: use notepad to edit the file)",
+ 's',"File has nonzero size (returns size)\tYour file has something in it, but needs to be blank.",
+ 'f',"File is a plain file",
+ 'd',"File is a directory",
+ 'l',"File is a symbolic link",
+ 'p',"File is a named pipe (FIFO)",
+ 'S',"File is a socket",
+ 'b',"File is a block special file",
+ 'c',"File is a character special file",
+ 't',"Filehandle is opened to a tty",
+ 'u',"File has setuid bit set",
+ 'g',"File has setgid bit set",
+ 'k',"File has sticky bit set",
+ 'T',"File is a text file\tYour file does not seem to be a text file.",
+ 'B',"File is a binary file\tYour file does not seem to be a binary file.",
+);
+
+
+sub FileTest {
+ local ($file,$wantChars)=@_;
+ foreach (split(//,$wantChars)) {
+  if (index('rwxoRWXOezsfdlpSbctugkTB',$_) > -1) {
+   if ((defined $file) and $file=~/\w/ and eval("-$_ \"$file\"")) {
+    # ok nop
+   }
+   else {
+    return $_;
+   }
+  }
+  elsif ($_ eq $kFileTest_Defined) {
+   if ((defined $file) and $file=~/\w/) { 
+    # ok nop  
+   }
+   else {
+    return $_;
+   }
+  }
+ }
+ return ''; # success
+}
+
+
+sub FileStat {
+ local ($f) = @_;  # the filename to test
+ my $x='';
+ my $s='';
+
+ if ((defined $f) and $f=~/\w/) {
+  if (-e $f) {
+   #$x.=' size='.(-s $f).' ';
+   $x.=(-f $f) ? 'Plain'  :'';
+   $x.=(-d $f) ? 'Dir'    :'';
+   $x.=(-l $f) ? 'Symlink':'';
+   $x.=(-p $f) ? 'Pipe'   :'';
+   $x.=(-S $f) ? 'Socket' :'';
+   $x.=(-b $f) ? 'Block'  :'';
+   $x.=(-c $f) ? 'Char'   :'';
+   $x.=(-t $f) ? 'TTY'    :'';
+   $x.=(-T $f) ? ' Txt ':' Bin ';
+
+   $x.=(-r $f) ? 'r':'-';
+   $x.=(-w $f) ? 'w':'-';
+   $x.=(-o $f) ? 'x':'-';
+   $x.=(-x $f) ? 'o':'-';
+   $x.=(-R $f) ? 'R':'-';
+   $x.=(-W $f) ? 'W':'-';
+   $x.=(-X $f) ? 'X':'-';
+   $x.=(-O $f) ? 'O':'-';
+   $x.=' ';
+
+   $x.=(-u $f) ? '+u':'~u';
+   $x.=(-g $f) ? '+g':'~g';
+   $x.=(-k $f) ? '+k':'~k';
+  # $x.='M='.(-M $f);
+  # $x.='A='.(-A $f);
+  # $x.='C='.(-C $f);
+
+   local ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+    $atime,$mtime,$ctime,$blksize,$blocks)=stat($f);
+
+   $s=" uid=$uid gid=$gid\n"
+     ."dev=$dev ino=$ino mode=$mode nlink=$nlink rdev=$rdev\n"
+     ."time=(a$atime m$mtime c$ctime) size=$size=$blocks*$blksize";
+  }
+  else {
+   $x.='nonexistant';
+  }
+ }
+ else {
+  $x.='undefined';
+  $s='';
+ }
+ return $x.' '.$s."\n";
+}
+
+
+###
+#
+#  IniLoad
+#
+#  IniLoad takes an existing associative array of ini key vals
+#  (which will be blank the first time you call IniLoad)
+#  then IniLoad iterates over 4 variables:
+#
+#  text             : The text to process. This can be either an
+#                     ini string (one key value pair per line)
+#                     or the name of an ini file to read.
+#
+#                     The key is all word characters, no spaces.
+#                     The only exception is for readability of
+#                     system commands: keys should contain a leading 
+#                     asterisk like this:  *grep /bin/grep
+#
+#  file             : If non-blank, then load this filename and process
+#                     the text in it (instead of processing $text).
+#
+#  createOkFlag     : If true, then &IniLoad is ok to create new keys.
+#                     If false, keys must already be defined.
+#                     Use true to help prevent typos in user files.
+#                     Use false when you are setting defaults, or 
+#                     when you are reading the UtilLocal.ini
+#
+#  modifyOkFlag     : If true, then &IniLoad is ok to overwrite keys.
+#                     If false, keys cannot be overwritten (redefined).
+#                     Use true to prevent overrides in user files.
+#                     Use false when you want to allow overrides.
+#
+#
+#  A typical way to call &IniLoad will first load the system-wide
+#  ini file "/www/cgi/util/UtilsLocal.ini" and then load the
+#  script's own ini file "myscript.ini", something like this:
+#
+#   %ini=&IniLoad(
+#    $scriptDefaultIni,''             ,$true,$true,
+#    '','/www/cgi/util/UtilLocal.ini' ,$true,$true,
+#    '',$gMyPath.$gMyFile.'.ini'      ,$true,$false,
+#   );
+#
+###
+
+sub IniQuick {  ## use this for standalone programs 1997/10/14  
+ %ini=(); $0=~m#^([-\w:\\/]+?)(\.pll?|\.cgi)?$# and open(INI,"$0.ini") or die $!;
+ while (<INI>) {/^([\/\*]?\w+)\s+([\\\:\@\-\/\w\. \"\']+)\n?$/ and $ini{$1}=$2;}
+ close(INI) or die $!;
+}
+
+sub IniLoad {
+ local ($text,$file,$createOkFlag,$modifyOkFlag,$msg)=();
+ local (*ini)= shift @_;
+ while (($text,$file,$createOkFlag,$modifyOkFlag)=splice(@_,0,4)) {
+  
+  $msg=($file)?"file=$file ":"text";
+  if ($file) {$text=&FileToText($file);}
+
+  for (split (/\n/, $text)) {
+   if (/^(\*?\w+)\s+([\\\:\@\-\/\w\. \"\']+)\n?$/) {
+    if (!$createOkFlag and (!defined $ini{$1})) {print STDERR "&IniLoad $msg failed to create key \"$1\"\n"; next; }
+    if (!$modifyOkFlag and ( defined $ini{$1})) {print STDERR "&IniLoad $msg failed to overwrite key \"$1\"\n"; next; }
+    #print STDERR "&IniLoad $msg key $1 = $2\n"; 
+    $ini{$1}=$2; 
+   }
+  }
+ }
+ return %ini;
+}
+
+###
+#
+#  &InxLoad
+#
+#  Loads key-value pairs that will be coming into your cgi script.
+#  Loads from STDIN (such as a web form) or from url QUERY_STRING.
+#  Associates keys-->values, and builds an ordered array of keys.
+#
+#  For example, if your STDIN is:  search=fun&where=title&limit=10
+#  Then you'll get:
+#
+#      $inx         == "search=fun&where=title&limit=10";
+#      @inx         == ("search", "where", "limit")
+#      %inx{search} == "fun"
+#      %inx{where}  == "title"
+#      %inx{limit}  == "10"
+#
+###
+
+$inx=''; @inx=(); %inx=(); 
+
+sub InxLoad {
+ local ($k,$v);
+
+ if ($ini{'^os'} eq 'unix'){
+  if ((defined $ine{'CONTENT_LENGTH'}) && $ine{'CONTENT_LENGTH'}) {
+   read(STDIN,$inx,$ine{'CONTENT_LENGTH'});
+  }
+  if ((!$inx) && (defined $ine{'QUERY_STRING'}) && $ine{'QUERY_STRING'}) {
+   $inx=$ine{'QUERY_STRING'};
+  }
+ }
+
+# elsif ($ini{'^os'} eq 'mac'){
+#  $inx=&ReadEntireFileToText(&StandardFile'GetFile("Please choose a file:", "TEXT", "OBJ ", "::"));
+#  $inx=~s/\n//g;  # convenience, so we can use \n in the input file
+# }
+
+ # Build a key-value association
+ for (split(/\&/,$inx)) {
+  s/\+/ /gi;
+  ($k,$v)=split(/=/);
+  ## Cook CGI's special escape characters
+  $k=~ s/%(..)/pack("c",hex($1))/ge;
+  $v=~ s/%(..)/pack("c",hex($1))/ge;
+  &InxHelper($k,$v);
+ }
+
+ ## Meta info for processing functions in submit buttons
+ $inx{'^do'}=(((grep(/^do\./,(keys %inx)))[0]) or '');
+}
+
+sub InxHelper {
+ local ($k,$v);
+ while (@_) {
+  $k=shift;
+  $v=shift;
+  if (!defined $v) { $v=''; }
+  $inx{$k}=$v;
+  push(@inx,$k);
+ }
+}
+
+###
+#
+#  Hash Serialization (converts among textfiles, strings, and hashes)
+#
+###
+
+sub HashSerialClean { ##  &HashSerialClean(*hash); 
+ my $a=@_; for (keys %a) {$_=~s/$;//g; $a{$_}=~s/$;//g;}
+}
+
+sub HashSerialTextLoad {  ##  %hash=&HashSerialTextLoad($string);
+ my %a; for (split(/$;/,$_[0])) { /^([^=]+)=(.*)/ and $a{$1}=$2; } %a;
+}
+
+sub HashSerialTextSave { ##  $string=&HashSerialTextSave(*hash);
+ my $a=@_; my $s=''; for (sort keys %a) {$s.="$_=$a{$_}$;";} $s;
+}
+
+sub HashSerialFileLoad { ## %hash=&HashSerialFileLoad($filename); }
+ return &HashSerialTextLoad(&FileToText($_[0]));
+}
+
+sub HashSerialFileSave { ## $string=&HashSerialFileSave(*hash,$filename); }
+ my $s; &TextToFile(($s=&HashSerialTextSave($_[0])),$_[1]); $s;
+}
+
+sub MyTie {
+ local(*a)=@_;
+ my $ok=$true;
+ (tie %a,  'DB_File',$_[0],O_RDONLY,0440,$DB_HASH)
+  or print "Content-type: text/html\n\nCant tie to $_[0] because $!";
+# or &Err($kErrDie,$kErrFileNotDefined,$me,$params,"Filename \"$fileOld\" is undefined.","Your filename has a typo, or is blank, or has a strange character in it.");
+}
+sub MyTieRWC {
+ local(*a)=@_;
+ (tie %a,  'DB_File',$_[0],O_RDWR|O_CREAT,0640,$DB_HASH)
+  or print "Content-type: text/html\n\nCant tie to $_[0] because $!";
+}
+
+sub MyUntie {
+ local(*a)=@_;
+ untie %a;
+}
+  
+#######################################################################
+#
+#        CGI SESSIONS -- FOR MAINTAINING USER DATA ACROSS FORMS
+#
+#######################################################################
+
+## Load the old session from a disk file. If the file does not exist,
+## or if the IP address from the saved session fails to match the IP
+## from the current user, then generate a new session id and init it.
+
+sub SessionLoad {
+ local($path,$id)=@_; 
+
+ if (defined $id) {
+  %ins=&HashSerialFileLoad("$path$id\t01111111");
+  if ($ins{'^ip'} ne $ine{'REMOTE_ADDR'}) { undef $id; }
+ }
+
+ if (!defined $id) {
+  %ins=();
+  $ins{'^id'}=$id=(&MakeUserID(1,16,'',1,@kCharLettel_16))[0];
+  $ins{'^ip'}=$ine{'REMOTE_ADDR'};
+  $ins{'^new'}=$ini{'^when'};
+  $ins{'^file'}=$path.$id;
+ }
+ $ins{'^mod'}=$ini{'^when'};
+}
+
+## Save the session variables to disk. You are responsible for
+## deleting "=" from the keys and $; from the keys and values.
+## before you call &InsSave (use &InsClean for this purpose).
+
+sub SessionSave  {&HashSerialFileSave(*ins,"$ins{'^file'}\t01111111");}
+sub SessionClean {&HashSerialClean(*ins);}
+sub SessionClear {%ins=();}
+
+### 
+#
+#  InVars: inject %ini, %inp, %ins, %inx into text.
+#  Used to support CGI sessions, CGI form input, email mailmerges, etc.
+#
+###
+
+sub InVars {
+ $_[0]=~s/\{\.ini\.([\^\*]?[\.\w]+)\}/$ini{$1}/g;
+ $_[0]=~s/\{\.inp\.([\^\*]?[\.\w]+)\}/$inp{$1}/g;
+ $_[0]=~s/\{\.ins\.([\^\*]?[\.\w]+)\}/$ins{$1}/g;
+ $_[0]=~s/\{\.inx\.([\^\*]?[\.\w]+)\}/$inx{$1}/g;
+ $_[0];
+}
+
+###
+#
+#  FilesToTexts 
+#
+#  Pass in strings and arrays that contain filenames (separated
+#  by whitespace, commas, or semicolons) and this will iterate
+#  over the filenames, and read in all the text from each file.
+#
+#  Typically, we read one file into a text string, like this:
+#
+#    ($myResultString) = &FilesToTexts($myFile);
+#
+#  We can read lots of files at the same time, like this:
+#
+#    ($myUsers,$myGroups) = &FilesToTexts("foo.users.txt","foo.groups.txt");
+#
+#  By default, the files must already exist, must be text files,
+#  and must contain something (e.g. "touch foo.txt" would fail).
+#  You can change these defaults by passing in filenames that
+#  end in a tab and okFlags; see &FileRWA for details.
+#
+###
+
+sub FilesToTexts {
+ local (@text,$file)=();
+ foreach $file (split(/[\s,;]+/,join(' ',@_))) {
+  push (@text,&FileRWA($file));
+ }
+ return @text;
+}
+
+sub FileToText {
+ return ((&FileRWA($_[0]))[0]);
+}
+
+###
+#
+#  TextsToFiles
+#
+#  Pass in pairs of text and filename; this writes the texts to the files.
+#  A typical use is to write one string to one file, like this:
+#
+#   &TextsToFiles($myString,$myFilename);
+#
+#  We can write lots of files at the same time:
+#
+#   &TextsToFiles($string1,$file1,$string2,$file2,$string3,$file3);
+#
+###
+
+sub TextsToFiles {
+ local ($text, $file);
+ while (($text,$file)=splice(@_,0,2)) {
+  &FileRWA($file,(defined $text)?$text:'');
+ }
+}
+
+sub TextToFile { &TextsToFiles(@_); }
+
+###
+#
+# FileRWA 
+#
+# You probably won't need to call this directly.
+# Instead, use &TextsToFiles and &FilesToTexts,
+# both of which call &FileRWA
+#
+# I will be documenting the okFlags soon;
+# in the meantime, it's easy to figure them out. :-)
+#
+###
+
+sub FileRWAErr {
+ my $c = $_[0];
+ my $try;
+ my $msg;
+
+ if (!$c or $fileTestWantChars!~/$c/) { return 1; }
+ if (($try,$msg)=split(/\t/,$kFileTest{$c})) {
+  #ok
+ }
+ else {
+  print STDERR "FileRWAErr: kFileTest $c is not defined.\n";
+ }
+
+ &Err($kErrDie,"FileTest \"$c\" aka \"$try\" failed."
+  ,'FileRWA '
+   .(($rwa eq 'r') ?'Read' :'')
+   .(($rwa eq 'w') ?'Write':'')
+   .(($rwa eq 'a') ?'Append' :'')
+  ,("The file is $file with status ".&FileStat($file)),$!,$msg);
+ if ($fileTestWantChars=~/\*/) { print STDERR "Dying...\n"; &Die; }
+ return 0;
+}
+
+
+sub FileRWA {
+
+ local ($file,$text,$fileTestWantChars,$appendFlag)=@_;
+ local ($rwa);
+ local ($t,@t,$fileOld);
+ $t='';
+ my $eol=$/;
+ my $pipeReadFlag  = ($file=~/\|\s*$/);
+ my $pipeWriteFlag = ($file=~/\s*\|/);
+
+ if (defined $text) {
+  if ((defined $appendFlag) and $appendFlag) {
+   $rwa='a';
+  }
+  else {
+   $rwa='w';
+  }
+ }
+ else {
+  $rwa='r';
+ }
+
+ ## Usually there will just be a filename. Optionally, there will
+ ## be a tab and fileTestWantChars. If this option isn't used,
+ ## then we'll use plausible defensive defaults: the file must exist,
+ ## be readable or writable by the effective ID, be text, actually
+ ## open, and really be readable or writable, and close.
+
+ if (!defined $fileTestWantChars) {
+  if    ($pipeReadFlag)  {$fileTestWantChars="$kFileTest_OpenRead$kFileTest_RealRead$kFileTest_Close*";}
+  elsif ($pipeWriteFlag) {$fileTestWantChars="$kFileTest_OpenWrite$kFileTest_RealWrite$kFileTest_Close*";}
+  else {
+   $fileTestWantChars= $kFileTest_Xe.$kFileTest_Defined
+   .(($rwa eq 'r')
+     ?"er$kFileTest_OpenWrite$kFileTest_RealRead$kFileTest_Close*"  # read
+     :"ew$kFileTest_OpenRead$kFileTest_RealWrite$kFileTest_Close*"    # write/append
+    );
+  }
+ }
+
+ if ($fileTestWantChars=~/$kFileTest_Xe/) {
+  if (&XeFile($file) eq $file) {
+   $file=&XeFile($file);
+   $fail=&FileTest($file,$fileTestWantChars);
+  }
+  else {
+   $fail=$kFileText_Xe;
+  }
+ }
+
+ &FileRWAErr($fail);
+
+ if (!$fail) {
+  if ($rwa eq 'r') {
+   if (open (F,$file)) {
+    if ($pipeReadFile) {
+     if ((defined F) and $t=join('',<F>)) {
+      #ok
+     }
+     else {
+      &FileRWAErr($kFileTest_RealRead);
+     }
+    }
+    else {
+     $/=undef;
+     if ((defined F) and ($t=<F>)) {
+      #ok
+     }
+     else {
+      &FileRWAErr($kFileTest_RealRead);
+     }
+     $/=$eol;
+    }
+   }
+   else {
+    &FileRWAErr($kFileTest_OpenRead);
+   }
+  }
+  else { # write or append
+
+   if (open (F,(($rwa eq 'w') ? '>' : '>>').$file)) {
+    if (print(F $text)) {
+     # ok nop
+    }
+    else {
+     &FileRWAErr($kFileTest_RealWrite);
+    }
+   }
+   else {
+    &FileRWAErr($kFileTest_OpenWrite);
+   }
+  }
+ }
+
+ if (!$fail) {
+  if (close (F)) {
+   # ok nop
+  }
+  else {
+   &FileRWAErr($kFileTest_Close);
+  }
+ }
+
+ return $t;
+}
+
+
+sub FileRWA_Old {
+
+ local ($file,$text)=@_; # if $text is defined then write else read.
+ local ($okNameDef,$okExist,$okText,$okOpenRead,$okOpenWrite,$okRead,$okWrite,$okClose)=(0,0,0,0,0,0,0,0);
+ local ($t,@t,$ok,$msg,$fileOld,$me,$params,$suggest,$writeFlag);
+ $writeFlag=defined $text;
+ my $eol=$/;
+
+ if ($file=~/^(.+)\t(\d\d\d\d\d\d\d\d)?$/) { # get trailing okFlags, if any
+  $file=$1; ($okNameDef,$okExist,$okText,$okOpenRead,$okRead,$okOpenWrite,$okWrite,$okClose)=split(//,$2);
+ }
+ $file=&XeFile($fileOld=$file);
+ $me='FileRWA'; 
+ $params=(($writeFlag)?'write to':'read from')." file=$file";
+ $suggest="You probably need the permissions reset by the webmaster.";
+ $ok=1; $t=''; 
+
+  $ok=($ok and ((defined $file)     or $okNameDef   or &Err($kErrDie,$kErrFileNotDefined,$me,$params,"Filename \"$fileOld\" is undefined.","Your filename has a typo, or is blank, or has a strange character in it.")));
+  $ok=($ok and ((-e $file)          or $okExist     or &Err($kErrDie,$kErrFileNotExist,$me,$params,"File does not exist.","Your file is required to exist, but doesn't. The most likely cause is a typo in your filename, or incorrect 'okFlags' to $me.")));
+  $ok=($ok and ((-T $file)          or $okText      or &Err($kErrDie,$kErrFileNotText,$me,$params,"File exists but is not a text file.","Your file must be a text file. Verify that it is.")));
+ if ($writeFlag) {
+  $ok=($ok and ((open (F,">$file")) or $okOpenWrite or &Err($kErrDie,$kErrFileNotOpenWrite,$me,$params,$!,"Your file cannot be opened for writing. $suggest")));
+  $ok=($ok and ((print(F $text))    or $okWrite     or &Err($kErrDie,$kErrFileNotWrite,$me,$params,$!,"Printing to your file fails. $suggest")));
+ }else{ # read 
+  $ok=($ok and ((open (F,$file))    or $okOpenRead  or &Err($kErrDie,$kErrFileNotOpenRead,$me,$params,$!,"Your file cannot be opened for reading. $suggest")));
+  $ok=($ok and (($/=undef or (defined F and $t=<F> and $/=$eol))   or $okRead      or &Err($kErrDie,$kErrFileNotRead,$me,$params,$!,"Your file cannot be read. It is probably empty. You need to put something in it.")));
+  push(@t,$t); ## don't test; we want blanks even if the file doesn't read.
+ }
+  $ok=($ok and ((close (F))         or $okClose     or &Err($kErrDie,$kErrFileNotClose,$me,$file,$!,"Your file cannot be closed. $suggest")));
+ return ($writeFlag) ? '' : @t;
+}
+
+
+#########################  ERRORS  #######################################
+
+###
+#
+#  Err -- call this to initialize info needed by the &Die subroutine.
+#
+###
+
+sub Err {
+ ($gErr{'val'},  # 0=$kErrNone 1=$kErrWarn 2=$kErrDie
+  $gErr{'num'},
+  $gErr{'function'},
+  $gErr{'parameters'},
+  $gErr{'msg'},
+  $gErr{'suggest'},
+ )=@_;
+ $gErr=$gErr{'val'};
+ return 0;
+}
+
+###
+#
+#  Die -- call this instead of perl's built-in "die" function.
+#
+#  function    : the name of the calling function
+#  parameters  : any parameters that the calling function wants to print.
+#  errMsg      : any error message, typically $!
+#  suggest     : a friendly suggestion for how to fix the error.
+#
+###
+
+
+
+## Before you call Die, you must call Err to initialize $gErr and %gErr
+
+sub Die {
+ local ($continueFlag)=@_;
+
+ if ($ini{'^viaCgiFlag'}) {
+
+#  print &CGI_PrintContent, "
+  print "Content-type: text/html\n\n<p><h1><hr>Web Error<hr></h1><p>
+
+To report this error, please email "
+.((defined $ini{'postmasterMail'}) ? $ini{'postmasterMail'} : 'the webmaster')
+.'</a>'
+.((defined $ini{'postmasterCall'}) ? "or call $ini{'postmasterCall'}": '')
+.".  The report below will help us find
+and fix the error.<p> It will help us if you can copy this page and
+include it with your email, or have it handy when you call us. We
+appreciate you taking the time to contact us.<hr><p>
+
+
+<b>Script:      </b>$0<p>
+<b>Function:    </b>$gErr{'function'}<p>
+<b>Parameters:  </b>$gErr{'parameters'}<p>
+<b>Error:       </b>$gErr{'num'} $gErr{'msg'}<p>
+<b>Suggestions: </b>$gErr{'suggest'}<p>
+<hr><p>
+
+<b>Your web browser: </b>$ine{'HTTP_USER_AGENT'}<br>
+<b>Your host name:   </b>$ine{'REMOTE_HOST'}<br>
+<b>Your IP address:  </b>$ine{'REMOTE_ADDR'}<br>"
+.'<b>Path info:       </b>'.((defined $ine{'PATH_INFO'})       ? $ine{'PATH_INFO'}       : '(none)')
+.'<b>Path translated: </b>'.((defined $ine{'PATH_TRANSLATED'}) ? $ine{'PATH_TRANSLATED'} : '(none)')
+.'<b>Query string:    </b>'.((defined $ine{'QUERY_STRING'})    ? $ine{'QUERY_STRING'}    : '(none)')
+.'';
+  exit 0;
+ }
+ else {
+ print STDERR "=== +ERROR ===
+Script:      $0
+Function:    $gErr{'function'}
+Parameters:  $gErr{'parameters'}
+Error:       $gErr{'num'} $gErr{'msg'}
+Suggestions: $gErr{'suggest'}
+=== -ERROR ===\n";
+ }
+ (exit -1) unless ((defined $continueFlag) and $continueFlag);
+}
+
+
+sub Compare {
+ my $x   =shift;  ## the unknown
+ my $cmp =shift;  ## the comparison operator
+ my $k   =shift;  ## the constant
+
+ return (
+        (($cmp eq '==') and ($x == $k))
+     or (($cmp eq '!=') and ($x != $k))
+     or (($cmp eq '<' ) and ($x <  $k))
+     or (($cmp eq '<=') and ($x <= $k))
+     or (($cmp eq '=<') and ($x <= $k))
+     or (($cmp eq '>' ) and ($x >  $k))
+     or (($cmp eq '>=') and ($x >= $k))
+     or (($cmp eq '=>') and ($x >= $k))
+
+     or ((($cmp eq 'eq')
+       or ($cmp eq 'is')) and ($x eq $k))
+     or (($cmp eq 'ne' )  and ($x ne $k))
+     or (($cmp eq 'lt'  ) and ($x lt $k))
+     or (($cmp eq 'le' )  and ($x le $k))
+     or (($cmp eq 'gt'  ) and ($x gt $k))
+     or (($cmp eq 'ge' ) and ($x ge $k))
+     or (($cmp eq 'beginswith' ) and (index($x,$k)==0))
+     or (($cmp eq 'contains'   ) and (index($x,$k)>=0))
+     or (($cmp eq 'endswith'   ) and ((index($x,$k)+length($k))==length($x)))
+     or (($cmp eq 'from'       ) and ($x=~/(^|\b)$k$/))
+     or (($cmp eq 'works'      ) and ($x==1))
+     or (($cmp eq 'fails'      ) and ($x!=1))
+ )?1:0;
+}
+
+1

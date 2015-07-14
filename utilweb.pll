@@ -1,0 +1,946 @@
+#!/usr/local/bin/perl -wT
+$ini{'^load'}.=$;.__FILE__.' '.<<'END'
+#############################################################################
+
+ utilweb.pll 0.9b 19940901-19980312 joel@school.net
+
+ DO NOT EDIT THIS!
+
+ This is a copy of the master version, and will be overwritten.
+ The master version is on jade.school.net in /www/cgi/util/joel/
+
+ Copyright (c) 1994-1997 Joel Parker Henderson joel@school.net 800-558-2197
+ This source code is private. Do not distribute without written permission.
+
+ utilweb.pll is a perl library, and does not do anything on its own. 
+ It offers utilities to support the web, html markup, cgi scripting,
+ email gateways, and cgi-simulated user-sessions by passing form ids.
+
+#############################################################################
+END
+;
+
+#------------------------- configuration start --------------------------
+
+
+#------------------------- configuration end ----------------------------
+
+#-w
+$true=$true;
+$false=$false;
+
+#####################################################################
+##
+##                  CGI SCRIPTING STUFF
+##
+#####################################################################
+
+###
+#
+#  General notes on CGI scripting:
+#
+#  Here's a simple CGI program that simply prints out the data
+#  of whomever is accessing it:
+#
+#  #!/usr/local/bin/perl5 -wT
+#  print &CGI_PrintContent;
+#  &CGI_GetData;
+#  print &CGI_Data2HTML;  
+#
+###
+
+
+$global_CGI_PrintContentNeeded=1; ## Do we need to print Content?
+sub CGI_PrintContent {
+  if ($global_CGI_PrintContentNeeded) {
+    $global_CGI_PrintContentNeeded=0;
+    return "Content-type: text/html\n\n";
+  } else {
+    return '';
+  }
+}
+
+sub EnvHelp {
+ local ($env,$msgFalse,$msgUndef)=@_;
+ if (!defined $msgFalse) { $msgFalse=''; }
+ if (!defined $msgUndef) { $msgUndef=$msgFalse; }
+ return (defined $ENV{$env}) 
+   ? (($ENV{$env})?$ENV{$env}:$msgFalse)
+   : $msgUndef;
+};
+
+
+###
+#  &InitInh ($htmlflag:boolean)
+#
+#  The %inh association is a global array.
+#  %inh makes it easy to return data as either html or plain text.
+#  Instead of printing html tags, use the %inh equivalents>
+#
+#  Example:
+#
+#    Instead of:  print "<p><hr><h1>Hello</h1><p>";
+#           use:  print $inh{'p'}.$inh{'hr'}.$inh{'+h1'}
+#                 .'Hello'.$inh{'-h1'}.$inh{'p'};
+#
+#  Yes, it's a pain in the neck to do it this way, but it makes things
+#  so much easier if you ever need to convert to a plain-text format.
+#
+#  Before you use any of the %h tags, you need to call &InitInh.
+#
+#    $htmlflag: true  ==> you get html tags.
+#               false ==> you get plain-text equivalents.
+#
+#  You can call &InitH as many times as you like.
+#
+###
+
+sub InitInh {
+ local ($htmlflag)=@_;
+ local (@a)=($htmlflag)  # true => use html,  false => use plain text 
+ ?(
+   '<h1>','</h1>','<h2>','</h2>','<h3>','</h3>',
+   '<h4>','</h4>','<h5>','</h5>','<h6>','</h6>',
+   "\n<hr>\n",
+   "<p>\n\n","<br>\n","<li>",
+   "<ul>","\n</ul>\n","<ol>","\n</ol>\n","<dl>","\n</dl>\n","<dt>","\n<dd>",
+   '<title>','</title>',
+  )
+ :(
+   "\n==== "," ====\n","\n=== "," ===\n","\n== "," ==\n",
+   "\n---- "," ----\n","\n--- "," ---\n","\n-- "," --\n",
+   "\n_________________________________________________________________\n\n",
+   "\n","\n","  * ",
+   "",  "\n","",  "\n","",  "\n", "\n=> ","\n   ",
+   "","",
+  );
+ for (qw'+h1 -h1 +h2 -h2 +h3 -h3 +h4 -h4 +h5 -h5 +h6 -h6 hr p br li +ul -ul +ol -ol +dl -dl +dt +dd +title -title') {
+  $inh{$_}=shift @a;
+ }
+}
+
+###
+#
+# ExpandTextVariables
+#
+# This helps embed variable names inside normal text.
+# For example, if you have an associative array like this:
+#
+#   %a = ( apple,red,   banana,yellow,   cherry,pink);
+#
+# And text like this:
+#
+#  $t="An apple is $apple, whereas a bananas is $banana.";
+#
+# Then &ExpandTextVariables($t,%a) ==>
+#
+#  "An apple is red, whereas a bananas is yellow."
+#
+# More commonly, I use this function to let my web pages
+# include web variables in them. For instance, one of my web page
+# sends an email to me; normally, I would have something like this:
+#
+#  <input type=hidden name=X_SendFromEmail value="nobody@zoom.com">
+#  <input type=hidden name=X_SendFromName  value="My Web Script">
+#  <input type=hidden name=X_SendSubject   value="Webform">
+#
+# If five different people sent me email from this form, I would
+# have a confusing inbox like this:
+#
+#   From                                 Subject
+#   ===================================  ==============================
+#   My Web Script <nobody@zoom.com>      Webform
+#   My Web Script <nobody@zoom.com>      Webform
+#   My Web Script <nobody@zoom.com>      Webform
+#
+# I usually ask for the name and email of the user, like this:
+#
+#  <input size=30 name=myName> Your Name <br>
+#  <input size=30 name=myEmail> Your Email Address <br>
+#  <input size=30 name=mySubject> The Subject of your message <br>
+#
+# This function helps me implement embedded variables, so I can
+# write like this:
+#
+#  <input type=hidden name=X_SendFromEmail value="$myEmail">
+#  <input type=hidden name=X_SendFromName  value="$myName (via web)">
+#  <input type=hidden name=X_SendSubject   value="Webform: $mySubject">
+# 
+# ...and get an inbox that is more meaningful:
+#
+#   From                                 Subject
+#   ==================================== ==============================
+#   John Galt (via web) <jgalt@zip.net>  Webform: hi there!
+#   Dagny (via web) <dagny@school.net>   Webform: Railroad suggestions
+#   Ayn Rand (via web) <aynr@galt.com>   Webform: Fiction Writing
+#
+# To accomplish the above, the function that sends the mail
+# (&CGI_SendMail, below) will pass every string through 
+# like this: &ExpandTextVariables($foostring,%gIn);
+#
+###
+
+sub ExpandTextVariables {
+  local ($text,%variable)=@_;
+  while (($variable)=$text=~/\$(\w+)/) {
+    #$debugloop.="<br>i=$i;var=$variable==".$variable{$variable}."<br>$text<p>\n";
+    if (!defined $variable{$variable}) {
+      $text=~s/\$(\w+)//;
+    } else {
+      $text=~s/\$(\w+)/$variable{$variable}/;
+    }
+  }
+  return $text;
+}
+
+    
+###
+#
+#  CGI_Data2HTML provides an easy way for you to print out your CGI data.
+#
+###
+
+sub CGI_Data2HTML {
+ local ($t)='';
+ foreach $k (sort keys %gIn) {
+   $t.="<li><b>$k</b>:$gIn{$k}\n";
+ }
+ return "\n\n<hr><b>Data2HTML:</b><ul>\n$t</ul><hr>\n\n";
+}
+
+sub CGI_Data2Report {
+
+  local ($htmlFlag) = @_;  # if true, put in html. if not, put in email.
+  local ($text, $goBack);
+  local ($colon,$wrapindent,%h);  
+
+  $colon=":";
+
+  &InitH($htmlFlag);
+  if ($htmlFlag) {
+    $wrapindent = (defined $gIn{'X_Format_HTML_WrapIndent'})
+                         ? $gIn{'X_Format_HTML_WrapIndent'} : '';
+  } else {
+    $wrapindent = (defined $gIn{'X_Format_Mail_WrapIndent'})
+                         ? $gIn{'X_Format_Mail_WrapIndent'} : '';
+  }
+  $wrapindent=&ExpandEmbeddedFormatChars($wrapindent);
+
+  local ($fkv,$x);  # fkv means Format Key Value
+  $x=($htmlFlag) ? $gIn{'X_Format_HTML_KeyValue'}
+                 : $gIn{'X_Format_Mail_KeyValue'};
+  if ($x) {
+    $fkv=&ExpandEmbeddedFormatChars($x);
+  } else {
+    $fkv=$h{'+dt'}.$h{'+b'}.'$key'.$colon.$h{'-b'}
+        .$h{'p'}.$h{'dd'}.'$value'.$h{'p'}."\n";
+  }
+
+  if ($gIn{'X_Title'}) { $text.= $h{'+title'}.$gIn{'X_Title'}.$h{'-title'}."\n\n"; }
+  if ($gIn{'X_Head'})  { $text.= $h{'+h1'}.$gIn{'X_Head'}.$h{'-h1'}; }
+  if ($gIn{'X_Lead'})  { $text.="$gIn{'X_Lead'}\n\n"; }
+  if ($gIn{'X_PageName'} && $gIn{'X_PageURL'} && $htmlFlag) {
+    $goBack =$h{'p'}.$h{'+b'}."<a href=\"$gIn{'X_PageURL'}\">
+           Return to $gIn{'X_PageName'}</a>".$h{'-b'}.$h{'p'}."\n\n"; 
+  }
+
+  $text.= $goBack."\n".$h{'hr'}.$h{'+h2'}."Your Data".$h{'-h2'}."
+    Here are the data that you submitted. \n";
+
+  if ($gIn{'X_Corrections'}) { $text .= "
+    If there are any problems with it, or you need to make corrections, 
+    please send email to ".$h{'+b'}.$gIn{'X_Corrections'}.$h{'-b'}." and explain the 
+    changes that you need made. \n";
+  }
+  $text.=$h{'p'}."\n";
+
+  ## deal with cgiSwitch, if there are any:
+
+  if (%cgiSwitch) {
+    local ($key,$val);
+    $text.=$h{'+h2'}.' CGI Switches '.$h{'-h2'}.$h{'+ul'};
+    while (($key,$val) = each %cgiSwitch) {
+      $text.=$h{'li'}.$h{'+b'}.$key.$h{'-b'}
+           .(($key=~/=$/) ? " $val\n" : "\n");
+    }
+    $text.=$h{'-ul'}.$h{'p'}.$h{'p'}."\n\n";
+
+  }
+
+  $blankSkip = !defined $gIn{'X_Format_Mail_BlankText'};
+  $blankText = (defined $gIn{'X_Format_Mail_BlankText'}) ? $gIn{'X_Format_Mail_BlankText'} : '';
+
+  $text.=$h{'+dl'}."\n\n";
+  foreach $i (0..@gInKey) {             
+    $key=$gInKey[$i];
+    $value=$gInVal[$i];
+    if ($key =~ /^X_/) {
+      #nop
+    } else {
+      if ((!$value) && $blankSkip) {
+        # nop 
+      } else {
+        if (!$value) { $value = $blankText; }
+        $printkey=$key; $printkey=~s/^H_//;  # chop leading H_ hidden, if necessary
+        $temp=$h{'br'}.$wrapindent;
+        $value =~ s/\n/$temp/gi;
+
+        if ($gIn{'X_Format_Mail_KeyValue'}) {
+          $x=$fkv;
+          $x=~ s#\$key#$printkey#g;
+          $x=~ s#\$value#$value#g;
+          $text.=$x;
+        } else {
+          $text.=$h{'+dt'}.$h{'+b'}.$printkey.$colon.$h{'-b'}
+                .$h{'p'}.$h{'dd'}.$value.$h{'p'}."\n";
+        }
+      }
+    }
+  }
+  $text.=$h{'-dl'}."\n\n$goBack";
+  return $text;
+}
+
+sub ExpandEmbeddedFormatChars {
+  local ($t)=@_;
+  $t= " ".$t." ";  # surrounding spaces make searching easier
+  $t=~ s#([^\\])\(#$1<#g;  ##  ( ==> <  with \( ignored
+  $t=~ s#([^\\])\)#$1>#g;  ##  ) ==> >  with \) ignored
+  $t=~ s#\\n#\n#g;
+  $t=~ s#\\t#\t#g;
+  $t=~ s#\\s# #g;
+  $t=~ s#^.##;   # chop surrounding spaces
+  $t=~ chop $t;  # chop surrounding spaces
+  $t;
+}
+
+###
+#
+#  GQueryInSwitch returns either the query or the stdin set by our &GetCGIdata.
+#  This is useful because it lets the user specify things like passwords,
+#  or search terms, or switches in three different ways:
+#
+#     URL == query
+#     forms == stdin
+#     switches == from the command line
+###
+
+sub GQueryInSwitch {
+  local ($key)=@_;
+  if ($gIn{$key})    	{ return $gIn{$key}; }
+  if ($switch{"$key="})	{ return $switch{"$key="}; }
+  return "";
+}
+
+###
+#
+# CGIEasySwitches
+#
+# This gives you an easy way to put switches (for calling unix commands)
+# on the actual web page. The key is the switch name, and must start with
+# a dash. There are two kinds of switches:
+#
+# Plain switches: the key is the switch, and the value is a dummy
+#
+#   $gIn{'-trace'} == '-trace'   ==>  -trace
+#
+# Value switches: the key is the switch, and the value is value 
+#
+#   $gIn{'-count'}  == 5             ==> -count=5
+#   $gIn{'-target'} == hello         ==> -target=hello
+#
+# To use it this way, here's the call:
+#
+#  @flags = &CGIEasySwitches(%gIn);
+#
+##
+
+sub CGIEasySwitches {
+  local (%assoc) = @_;
+  local ($key,$val,$foundkey,$foundval);
+  while (($key,$val) = each %assoc) {
+
+    # Usually we have switches as html checkboxes.
+    # You should set the checkbox like this:
+    # <input type="checkbox" name="-myswitch" value="-myswitch"> -myswitch
+    # The vox <checkbox> tag does this for you automatically.
+    # When the box is checked, the key and value will be the same thing.
+
+    if ($key=~/^-\w/ && $key eq $val) { $foundkey=$key; $foundval=$true; }
+
+    # Sometimes we have switches that take values, like -count=10
+    # To do this in html, just use:  <input name="-count">
+    # Any key that starts with a dash is assumed to be a switch.
+
+    if ($key=~/^-\w/ && $key ne $val) { $foundkey=$key; $foundval=$val; }
+
+    # Otherwise, it gets more complicated.  
+
+    # We often have mutually-exclusive switches that are selected via
+    # radio-buttons. 
+
+    # In this case, the key is going to be the radio group name.
+    # Because HTML is so fucked up, we have to tell our script that
+    # we're getting input from a radio group. We do this by
+    # having "radio_" as the first part of the radio group name.
+    # So if the value is a switch, and comes from a radio group,
+    # then we use it.
+
+    if ($key=~/^radio_(.+)/ && $val=~/-/) {
+
+      # If the value is a plain switch (does not end in =)
+      # like -trace, then use it.
+
+      if ($val=~/[^=]$/) { $foundkey=$val; $foundval=$true; }
+
+      # If the value ends in =, then we need to find the input
+      # for the switch's value. We do this by forcing the author
+      # of the page to name the switch's value with the name of 
+      # the radio group, concatenated with the name of the switch.
+
+      #  <radio radio_day b dt dd>
+      #  (x) -today      search only today
+      #  ( ) -yesterday  search only yesterday
+      #  ( ) -daysago=   search <input name="radio_day-daysago=" size=3> days ago
+      #  ( ) -daysall    search all days
+      #  </radio>
+   
+      if ($val=~/=$/) {
+        $foundkey=$val;  # yes, this is really correct
+        $foundval=$assoc{"$key$val"};
+      }
+    }
+
+    # We will often use the cgi switches to call system programs,
+    # so it is *imperative* that we not allow anything "weird" through.
+    # To protect ourselves, we allow switch keys and values to include
+    # only letters, numbers, and underscores.
+
+    if ($foundkey) {
+      $foundkey=~s/\W//g;
+      $foundval=~s/\W//g; 
+      $assoc{$key}=undef;
+      if ($foundkey) { $cgiSwitch{$foundkey}=$foundval; }
+    }
+  }
+  return %cgiSwitch;
+}
+
+sub SwitchesToCommandLine {
+  local (%a) = @_;
+  local ($key,$val,$cmdline);
+  while (($key,$val) = each %a) {
+    $cmdline.=" -$key".(($key=~/=$/) ? $val  : "")." ";
+  }
+  return $cmdline;
+}
+
+
+###
+#
+#  CGI_SendMail
+#
+#  Sends a form as a mail message.
+#
+###
+
+sub CGI_SendMailHelper {
+  local ($sendToEmail,$text)=@_;
+  local ($cmd,$mailer);
+  $mailer=$kLocal{'MailerProgram'}
+    .(($kLocal{'MailerRequiresAddressFlag'})?(' "'.$sendToEmail.'"'):'');
+  &DebugMsg("Mailer is $mailer");
+
+  if ($kLocal{'MailerTempFile'}) {
+#    if (open(FILE,'> '.$kLocal{'MailerTempFile'})) {
+#      print FILE $text;
+#      close FILE
+#       || print &CGI_Die("Cannot send email because kLocal MailerTempFile will not close.", $kLocalMailerTempFile,"The temp file is probably in use by someone else, or is locked open.");
+#    } else {  ## never opened
+#      print &CGI_Die("Cannot send email because kLocal MailerTempFile will not open.", $kLocalMailerTempFile,"Verify that temp file exists and has proper permissions.");
+#    }
+#    $cmd="$kLocal{'=cat'} $kLocal{'MailerTempFile'} $mailer";
+#    print "<li>$cmd<p>";
+#    system($cmd);
+  } else {
+
+
+    open(MAIL,$mailer)
+     || &CGI_Die("Cannot send email because mailer program will not open."
+     ,$mailer,"Verify mailer path and file name and piping capability.");  
+    print MAIL $text."\n\n";
+    close(MAIL)||&CGI_Die("Cannot send email because mailer program will not close.", $kLocalMailerTempFile,"The mailer program is probably being held open by a long data stream.");
+  }
+}
+
+sub CGI_SendMail {
+  local ($sendToName, $sendToEmail, $sendFromName, $sendFromEmail,
+         $sendSignature, $sendSubject, $statsFlag, $message, $messageHasHeaderFlag,$messageUsesEmbedsFlag) = @_;
+  local ($stats);
+  local ($to,$from,$headhelp,$build);  # the complete mail message we're building
+
+  #&DebugMsg("In CGI_SendMail<p>");
+  $build=$to=$from=$subject=$signature=''; 
+
+  if ($messageUsesEmbedsFlag) {$message=&ExpandEmbeddedFormatChars(&ExpandTextVariables($message,%gIn));}
+
+  if ($sendToEmail)   {$to  =($sendToName)   ? ("\"$sendToName\" <$sendToEmail>") : $sendToEmail;}
+  if ($sendFromEmail) {$from=&ExpandTextVariables((($sendFromName) ? ("\"$sendFromName\" <$sendFromEmail>") : $sendFromEmail),%gIn);}
+  if ($sendSignature) {
+    $signature = "\n"
+    ."___________________________________________________________________________\n"
+    .&ExpandEmbeddedFormatChars(&ExpandTextVariables($sendSignature,%gIn))."\n"
+    ."___________________________________________________________________________\n";
+  }
+
+  if ($sendSubject) {$subject=&ExpandTextVariables($sendSubject,%gIn);}
+
+  $stats = "
+    when = ".$gIn{'env_when'}."
+    from = $from
+      to = $to
+     sub = $subject
+ host ip = ".$gIn{'env_remote_addr'}." 
+ browser = ".$gIn{'env_http_user_agent'}."\n";
+
+  $headhelp=
+"From: $from
+Reply-To: $from
+Errors-To: \"Hotmail\" <$kLocal{'HotmailPostmasterEmail'}>";
+
+  $build =  
+"To: $to
+$headhelp
+Subject: $subject
+".(($messageHasHeaderFlag)?$message:"\n")
+.(($statsFlag)?$stats:'')
+.(($messageHasHeaderFlag)?"\n":$message)
+."\n$signature\n";
+
+  $build =~s#\n\n\n+#\n\n\n#g;
+  &CGI_SendMailHelper($sendToEmail,$build);
+
+  $build =  
+"To: \"Hotmail Postmaster\" <$kLocal{'HotmailPostmasterEmail'}>
+$headhelp
+Subject: (www) $subject
+
+$stats
+$message
+\n$signature\n";
+
+  $build =~s#\n\n\n+#\n\n\n#g;
+  &CGI_SendMailHelper($kLocalHotmailPostmasterEmail,$build);
+}
+
+
+#########################################################################
+#
+#                                 HTML
+#
+#########################################################################
+
+###
+#
+#  Pass in a string with any of these tags and/or some flags,
+#  and a list of entries (an array). This will do some
+#  easy markup on the list for you and return an array.
+#
+#  <ul>   Put <ul> and </ul> around entries
+#  <dl>   Put <dl> and </dl> around entries
+#  <ol>   Put <ol> and </ol> around entries
+#  <li>   Put <li> at the front of every entry. Autoset if -ul, -dl, or  -ol
+#  <br>   Put a <br> at the end of every entry
+#  <!>    Put a <!> delete tag at the start of every entry
+#  ,      Put a comma at the end of every entry (before <br> if any)
+#
+#  $dlFlag    Put <dl> and </dl> around list (sets $liFlag)
+#  $olFlag    Put <ol> and </ol> around list (sets $liFlag)
+#  $ulFlag    Put <ul> and </ul> around list (sets $liFlag)  
+#  $liFlag    Put <li> at the front of every entry
+#  $commaFlag Put ", " at the end of every entry
+#  $brFlag    Put <br> at the end of every entry (after comma, if any)
+#  $deletableTarget:
+#    If $deletableTarget == 1, then put <!> at the start of every entry
+#    If $deletableTarget is a string or char, then replace the target with "<!>"
+#
+#  == Sorting ==
+#
+#  Sometimes our lists have sort codes at the start of entries:
+#
+#     941225 Christmas
+#     950101 New Year's 
+#     950214 Valentine's Day
+#  
+#  and we need these codes to stay at the front, even with the new tags:
+#
+#     941225<!><li>Christmas
+#     950101<!><li>New Year's
+#     950214<!><li>Valentine's Day
+#  
+#  We do this by specifying the character (or string) that we want to
+#  be considered the start of the entry. In the above example, the
+#  $startTargetString would be the space. The string is replaced
+#  by anything that needs to be prepended to the entry. This gives
+#  an easy way to keep the sort codes at the start.
+#
+###
+
+sub HTML_ListAssist {
+  local ($tags,$dlFlag,$olFlag,$ulFlag,$liFlag,
+         $commaFlag,$brFlag,$deletableFlag, $startTargetString, $returnAsArrayFlag, @list) = @_;
+
+#  local (%me) = &traceinit('HTML_ListAssist',
+#     'tags,dlFlag,olFlag,ulFlag,liFlag,
+#      commaFlag,brFlag,deletableFlag,startTargetString,returnAsTextFlag'
+#                         , $kTraceSubs, $kTraceReports, $kTraceArgs);
+
+  if (($xl) = $tags =~ /(<[uod]l>)/) {
+  } else {
+    $xl = ($ulFlag)
+      ?"<ul>"
+      :($dlFlag)
+        ?"<dl>"
+        :($olFlag)
+          ?"<ol>"
+          :"";
+  } 
+
+  $xlclose=$xl; $xlclose=~s#<#</#;
+  &trace("The array count is $#list");
+  &tracevar('xl xlclose');
+  local ($prepend,$append, $del);
+  if ($xl || $liFlag || ($tags=~/<li>/)) { $prepend='<li>'.$prepend; }
+  if ($deletableFlag || ($tags=~/<!>/))  { $prepend='<!>' .$prepend; $del="<!>"; }
+  if ($commaFlag || ($tags=~/,/))        { $append.=', ';   }
+  if ($brFlag || ($tags=~/<br>/))        { $append.='<br>'; }
+
+  if ($prepend) {
+    if ($startTargetString) {@list=&ArrReplace($startTargetString,$prepend,$false,@list);}
+    else {@list=&ArrPrepend($prepend,@list);}
+  }
+
+  if ($append) {@list=&ArrAppend ($append,@list);}
+
+  if ($returnAsArrayFlag) {
+     &tracedone(); @list;  # n.b. ignores <ul> etc. tags!
+  } else {
+    local ($list) = join("\n",@list);
+    if ($xl) { $list="$del$xl\n$list\n$del$xlclose"; }
+    &tracevar('list');
+    &tracedone(); $list."\n";
+  }
+}
+
+###
+#
+#  OptionSelectTarget takes in a search target and the text of
+#  an html select popup menu, and selects the first option that
+#  contains the target.
+#
+#  This is particularly useful for doing our <hotlist> tag.
+#  We want the hotlist to correspond to the page we're compiling,
+#  to have that page selected in the hotlist.
+#
+###
+
+
+sub OptionSelectTarget {
+  local ($target,$selectPopup)=@_;
+  ## Example: $selectPopup="<option value=foo>My Bar"
+
+  if (defined $target and $target ne "") {
+
+   ## This does $target='value=foo'
+   $selectPopup=~ s#<option(\s+.*?$target.*?)>#<option$1 selected>#i;
+
+   ## This does $target='My Bar'
+   $selectPopup=~ s#<option([^>]*)>($target.*)#<option$1 selected>$2#i;
+
+  }
+  return $selectPopup;
+}
+
+
+
+##
+#
+# &CreateFilelistForm
+#   ($pathregex: string, $groupname: string, $btnType: string)
+#
+# This creates an HTML page that lets users select files via forms.
+# You pass in:
+# 
+#   $pathregex    A path and/or grep for use with the "ls" system command
+#   $groupname    For the radio buttons or checkboxes or select box.
+#   $btnType      "radio" | "checkbox" | "select" | "select 9"
+#
+# e.g.
+# 
+#   $myhtml = &CreateFilelistForm(
+#               "~joel/www.techreg.com/*.help"
+#              ,"helpfiles"
+#              ,"radio");
+#           
+##
+
+sub CreateFilelistForm {
+  local ($path,$regex,$groupname,$btnType,$btnBetween)=@_;
+  local ($t,$file,@file);
+  $t='';
+
+print "<ul>
+<li>path = $path
+<li>regex = $regex
+<li>groupname = $groupname
+<li>btnType = $btnType
+</ul>";
+
+  @file=`ls $path$regex`;
+  foreach $file (@file) { $file=~s/^$path//; }
+  #print join(', ',@file);
+  if ($btnType=~/^radio/)    { foreach $file (@file) {$t.="<input name=$groupname type=radio value=$path$file  >$file$btnBetween\n";}}
+  if ($btnType=~/^checkbox/) { foreach $file (@file) {$t.="<input name=$groupname"."_$path$file type=checkbox value=$path$file>$file$btnBetween\n";}}
+  if ($btnType=~/^select/)   { foreach $file (@file) {$t.="<option value=$path$file>$file\n";}
+    local ($size)=$btnType=~/^select *(\d*)/;
+    $size = (defined $size) ? "size=$size " : '';
+    $t="<select name=groupname $size>\n".$t."</select>\n";
+  }
+  return $t;
+}
+
+sub Anchorize {
+  local ($anchor) = @_;
+  if (!defined $anchor || $anchor eq "") { return ""; }
+  $anchor=~s/^[ \t]+//g;
+  $anchor=~s/[ \t]+$//g;
+  $anchor=~s/ /_/g;
+  $anchor=~s/['\?,]+//g;
+  $anchor=~s/[^A-Za-z_]+/_/g;
+  return $anchor;
+}
+
+
+###
+#
+#  BuildHRButtons helps us build <hr> buttons that look cool and
+#  are useful to the user. Basically it creates a long thin set
+#  of gifs, each of which is a clickable local-anchor link.
+#
+#  You pass in your root name and a list of local anchors,
+#  and this creates the hr buttons.
+#
+#  E.g. for Shop.Com we want buttons (and local links) for
+#  "top", "services", "malls", and "shops".
+#
+#    $hrb=&BuildHRButtons("shop", "top,services,malls,shops");
+#
+#  You can use any number of spaces, commas, tabs, and # signs
+#  as the separators in your input list.
+#
+###
+ 
+sub BuildHRButtons {  
+
+  local ($buttons, $gifFlag, $textFlag) = @_;
+  if (!$buttons) { return ""; }
+  $buttons =~ s/^[ \t\n|]+//;  # delete leading white
+  $buttons =~ s/[ \t\n|]+$//;  # delete trailing white
+  $buttons =~ s/\n/|<br>|/g;   # internal \n should be breaks
+  $buttons =~ s/ *\|+ */|/g;   # single vertical bars are delimters
+
+  local (@buttons) = split(/\|/,$buttons);  
+  local ($b,$hrb,$anchor);
+
+  if ($gifFlag) {
+    foreach $b (@buttons) {
+      $anchor = &Anchorize($b);
+      $hrb.="<a href=\"#$anchor\"><img src=\"/g/hr/hr.btn.$b.gif\" border=0 alt=\"--[ $b ]--\"></a>";
+    }
+  }
+
+  if ($textFlag) {
+    foreach $b (@buttons) {
+      $anchor = &Anchorize($b);
+      if ($b eq "<br>") { $hrb.="|| <br> \n";  }
+      else { $hrb.="|| <a href=\"#$anchor\">$b</a> "; }
+    }
+    $hrb .= "||";
+
+  }
+  return "\n<hr><center><b>\n".$hrb."\n</b></center><hr><p>";
+}
+
+
+#############################################################################
+#
+#    VALIDATION AND SECURING USER-SUBMITTED DATA
+#
+#############################################################################
+
+
+###
+#
+#  CGI_FormFieldtypeSplit
+#
+#  This creates an associative array that you can use for webform validation.
+#  You should pass in a field list that has columns:
+#
+#     sFieldname  fRequired  sDatatype  sUsertext
+#     ----------  ---------  ---------  ---------
+#     namefirst   +          string     Your First Name
+#     age         -          integer    Your Age
+#
+#  This creates:
+#
+#    f{namefirst.required}=1
+#    f{namefirst.datatype}="string"
+#    f{namefirst.usertext}="Your First Name"
+#
+###
+
+sub CGI_FormFieldtypeSplit {
+  local ($fieldlist)=@_;
+  local (%field,$sFieldname,$sDatatype,$fRequired,$sUsertext,@f,$f);
+  $fieldlist=~s/(^\s+|\s+$)//g;
+  @f=split(/\s*\n\s*/,$fieldlist);
+  foreach $f (@f) {
+    $f=~s/\s+$//g;
+    if (($sFieldname,$fRequired,$sDatatype,$sUsertext)
+        =$f=~m#^\s*(\S+)\s+(\S+)\s+(\S+)\s+(.*)#) {
+      $field{$sFieldname.'datatype'}=$sDatatype;
+      $field{$sFieldname.'required'}=$fRequired;
+      $field{$sFieldname.'usertext'}=$sUsertext;
+    }
+  }
+  %f;
+}
+
+###
+#
+#  CGI_FormRequireInputItem
+#
+#  On web forms, we often want to require that a user fills out particular
+#  fields, popups, etc. This function is a very basic validation routine:
+#  you pass in a list of required form item names, and this returns an
+#  array of the items that are missing. It also returns a helpful message
+#  that you can simply print to your web page.
+#
+###
+
+sub CGI_FormRequireInputItem {
+  local ($requireList,%fieldname)=@_;
+  local (@require)=split(/\s+/,$requireList);
+  local ($msg,$k,@k,@missing)=();
+  foreach $k (@require) {
+    if ((!defined $gIn{$k}) or (!$gIn{$k})) {
+      push(@missing,$k);
+      #print "<li>Require failed for <b>$k</b> \"$fieldname{$k}\"\n";
+    }
+  }
+  if ($#missing>-1) {
+    if ($#missing==0) {$msg='You need to answer the "<b>'.$fieldname{$missing[0]}.'</b>" item.'; }
+    if ($#missing==1) {$msg='You need to answer the "<b>'.$fieldname{$missing[0]}.'</b>" and the "<b>'.$fieldname{$missing[1]}.'</b>" items.'; }
+    if ($#missing >1) {
+      $msg="You need to answer the following items:<ul><p><b>\n";
+      foreach $k (@missing) { $msg.="<li>$fieldname{$k}\n"; }
+      $msg.="</ul></b><p>\n\n";
+    }
+  }
+  return ($msg,@missing);
+}
+
+#############################################################################
+
+##
+#
+# CGI_GetVal
+#
+#  We normally have input into this script by using cgi forms, and using
+#  hidden input fields with names and values. For example:
+#
+#   <input type=hidden name="X_ContinueURL" value="/eos/thanks.html">
+#
+#  However, sometimes we need to put this name and value pair into a
+#  submit button, because we sometimes have different submit buttons
+#  go to different places. We use this kind of format:
+#
+#   <input type=submit name="X_ContinueURL_/eos/thanks.html">
+#
+#  This function extracts the key and val from the CGI input whichever
+#  way you choose to do it.
+#
+#  $key="X_ContinueFile"
+#  $gIn="Name=Joel&X_ContinueFile_/home/eos/myfile.html=&Age=25
+#
+# Output e.g.:  $val="/home/eos/myfile.html"
+#
+##
+
+sub CGI_GetVal {
+  local ($key)=@_;
+  local ($val)=$gIn=~/$key[_]([^=]+)/;
+  if (defined $val) {
+    $val=~s/\+/ /gi;
+  } else {
+    if (defined $gIn{$key}) { $val=$gIn{$key}; }
+  }
+  return $val;
+}
+
+##
+#
+# Continue Files
+#
+# You tell the cgi script what file to load next.
+# Particularly useful with user sessions.
+#
+# Here's how you use it:
+#
+#   <input type=hidden
+#    name="X_ContinueFile_/home/joel/myfile.html"
+#    value="dummy">
+#
+# Note that the setup is different from the other X_ variables.
+# This is because the Continue Files will sometimes need to be chosen
+# depending on which "submit" button you choose. Let's suppose you
+# want the Submit button to read "Go to page 5", then you would use:
+#
+#   <input type=submit
+#    name="X_ContinueFile_/home/joel/mypage5.html"
+#    value="Go to page 5">
+#
+# The X_ContinueFile is a pathname to the next file.
+# Using it means that you want all data from this input
+# (except for the executable X_ fields) passed along in
+# H_ hidden format.
+#
+# If you are using a lot of different submit buttons that all go into
+# the same folder, you would have something like this:
+#
+#  <input type=submit name="X_ContinueFile_/home/joel/pg5.html" value="Page 5">
+#  <input type=submit name="X_ContinueFile_/home/joel/pg6.html" value="Page 6">
+#  <input type=submit name="X_ContinueFile_/home/joel/ind.html" value="Index">
+#  <input type=submit name="X_ContinueFile_/home/joel/tit.html" value="Title">
+#
+# To simplify typing, and to make changes easier, we have the optional
+# X_ContinuePath_/any/path/here/ variable. If this is specified, then
+# it gets prepended to the X_Continue path. For example:
+#
+#   <input type=hidden name="X_ContinuePath_/home/joel/techreg/">
+#   <input type=submit name="X_ContinueFile_pg5.html" value="Page 5">
+#   <input type=submit name="X_ContinueFile_pg6.html" value="Page 6">
+#   <input type=submit name="X_ContinueFile_ind.html" value="Index">
+#   <input type=submit name="X_ContinueFile_tit.html" value="Title">
+#
+# The X_ContinuePath_ also makes it much easier to localize for different
+# systems, because if your directory structure changes, you only have to
+# change X_ContinuePath_.  This is not usually a big deal, unless you happen
+# to be continually working on the files on two different systems (I'm using
+# the files on both a Mac and a Unix machine).
+#
+##
+
+
+
+1
